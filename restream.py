@@ -24,7 +24,7 @@ EXPIRE_AGE = 7200             # seconds to keep old MP3 files
 
 # Use playlist links directly
 CHANNELS = {
-    "dhruv": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9jLYyp2Aoh6hcWuxFDX6PBJ"
+    "dhruv": "https://youtube.com/playlist?list=PL8828Z-IEhFFejp6N8hTc3Gdub3R9_7Pv"
 }
 
 VIDEO_CACHE = {name: {"videos": [], "last_checked": 0} for name in CHANNELS}
