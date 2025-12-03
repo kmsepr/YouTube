@@ -1,226 +1,295 @@
+#!/usr/bin/env python3
 import os
 import time
-import random
-import json
-import threading
-import subprocess
 import logging
-from logging.handlers import RotatingFileHandler
+import requests
+import subprocess
 from collections import deque
 from flask import Flask, Response, render_template_string, abort, stream_with_context
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# ============================================================
+# Basic Setup
+# ============================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 app = Flask(__name__)
 
-# ==============================================================
-# 🎶 YouTube Playlist Radio SECTION
-# ==============================================================
+REFRESH_INTERVAL = 1800  # 30 minutes
+LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 
-LOG_PATH = "/mnt/data/radio.log"
-COOKIES_PATH = "/mnt/data/cookies.txt"
-CACHE_FILE = "/mnt/data/playlist_cache.json"
-os.makedirs(DOWNLOAD_DIR := "/mnt/data/radio_cache", exist_ok=True)
-os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-
-handler = RotatingFileHandler(LOG_PATH, maxBytes=5*1024*1024, backupCount=3)
-logging.getLogger().addHandler(handler)
-
+# iptv-org playlists (public, grouped by all/country/category) [web:1][web:5]
 PLAYLISTS = {
-    
-
-
-    "samastha": "https://youtube.com/playlist?list=PLgkREi1Wpr-XgNxocxs3iPj61pqMhi9bv",
-
-   
-
-
+    "all":   "https://iptv-org.github.io/iptv/index.m3u",          # all channels [web:1]
+    "india": "https://iptv-org.github.io/iptv/countries/in.m3u",   # India-only [web:5]
+    "news":  "https://iptv-org.github.io/iptv/categories/news.m3u" # News category [web:4]
 }
 
-STREAMS_RADIO = {}
-MAX_QUEUE = 128
-REFRESH_INTERVAL = 1800  # 30 min
+# Cache: { name: { "time": ts, "channels": [...] } }
+CACHE = {}
 
-def load_cache_radio():
-    if os.path.exists(CACHE_FILE):
-        try:
-            return json.load(open(CACHE_FILE))
-        except Exception:
-            return {}
-    return {}
+# ============================================================
+# M3U Parsing
+# ============================================================
+def parse_extinf(line: str):
+    """
+    Parse an #EXTINF line of extended M3U.
+    Example: #EXTINF:-1 tvg-id="X" tvg-logo="Y" group-title="News", Channel Name
+    Returns: (attrs: dict, title: str)
+    """
+    if "," in line:
+        left, title = line.split(",", 1)
+    else:
+        left, title = line, ""
 
-def save_cache_radio(data):
-    try:
-        json.dump(data, open(CACHE_FILE, "w"))
-    except Exception as e:
-        logging.error(e)
+    attrs = {}
+    pos = 0
+    while True:
+        eq = left.find("=", pos)
+        if eq == -1:
+            break
+        key_end = eq
+        key_start = left.rfind(" ", 0, key_end)
+        colon = left.rfind(":", 0, key_end)
+        if colon > key_start:
+            key_start = colon
+        key = left[key_start + 1:key_end].strip()
 
-CACHE_RADIO = load_cache_radio()
+        if eq + 1 < len(left) and left[eq + 1] == '"':
+            val_start = eq + 2
+            val_end = left.find('"', val_start)
+            if val_end == -1:
+                break
+            val = left[val_start:val_end]
+            pos = val_end + 1
+        else:
+            val_end = left.find(" ", eq + 1)
+            if val_end == -1:
+                val_end = len(left)
+            val = left[eq + 1:val_end].strip()
+            pos = val_end
 
-def load_playlist_ids_radio(name, force=False):
+        attrs[key] = val
+    return attrs, title.strip()
+
+def parse_m3u(text: str):
+    """
+    Parse M3U content into list of channels.
+    Each channel: {title, url, logo, group, tvg_id}
+    M3U format is widely used for IPTV, with EXTM3U/EXTINF tags defining streams. [web:23][web:28]
+    """
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    channels = []
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith("#EXTINF"):
+            attrs, title = parse_extinf(lines[i])
+            j = i + 1
+            url = None
+            while j < len(lines):
+                if not lines[j].startswith("#"):
+                    url = lines[j]
+                    break
+                j += 1
+            if url:
+                channels.append(
+                    {
+                        "title": title or attrs.get("tvg-name") or "Unknown",
+                        "url": url,
+                        "logo": attrs.get("tvg-logo") or "",
+                        "group": attrs.get("group-title") or "",
+                        "tvg_id": attrs.get("tvg-id") or "",
+                    }
+                )
+            i = j + 1
+        else:
+            i += 1
+    return channels
+
+# ============================================================
+# Cache + Loader
+# ============================================================
+def get_channels(name: str):
     now = time.time()
-    cached = CACHE_RADIO.get(name, {})
-    if not force and cached and now - cached.get("time", 0) < REFRESH_INTERVAL:
-        return cached["ids"]
+    cached = CACHE.get(name)
+    if cached and now - cached.get("time", 0) < REFRESH_INTERVAL:
+        return cached["channels"]
 
     url = PLAYLISTS[name]
+    logging.info("[%s] Fetching playlist: %s", name, url)
+    resp = requests.get(url, timeout=25)
+    resp.raise_for_status()
+    channels = parse_m3u(resp.text)
+    CACHE[name] = {"time": now, "channels": channels}
+    logging.info("[%s] Loaded %d channels", name, len(channels))
+    return channels
+
+# ============================================================
+# Streaming Helpers
+# ============================================================
+def proxy_stream(source_url: str):
+    """
+    Raw proxy of IPTV stream.
+    M3U entries usually point to HTTP/HLS URLs, which can be re-streamed by reading chunks. [web:28]
+    """
+    with requests.get(source_url, stream=True, timeout=25) as r:
+        r.raise_for_status()
+        for chunk in r.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                break
+            yield chunk
+
+def proxy_audio_only(source_url: str):
+    """
+    Audio-only restream using ffmpeg:
+      -vn (no video), mono, 44.1kHz, 64 kbps MP3.
+    ffmpeg can transcode network inputs directly to mp3 on stdout. [web:38]
+    """
+    cmd = [
+        "ffmpeg",
+        "-loglevel", "error",
+        "-i", source_url,
+        "-vn",
+        "-ac", "1",
+        "-ar", "44100",
+        "-b:a", "64k",
+        "-f", "mp3",
+        "pipe:1",
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        logging.info(f"[{name}] Refreshing playlist...")
-        res = subprocess.run(
-            ["yt-dlp", "--flat-playlist", "-J", url, "--cookies", COOKIES_PATH],
-            capture_output=True, text=True, check=True
-        )
-        data = json.loads(res.stdout)
-        ids = [e["id"] for e in data.get("entries", []) if "id" in e][::-1]
-        CACHE_RADIO[name] = {"ids": ids, "time": now}
-        save_cache_radio(CACHE_RADIO)
-        logging.info(f"[{name}] Cached {len(ids)} videos.")
-        return ids
-    except Exception as e:
-        logging.error(f"[{name}] Playlist error: {e}")
-        return cached.get("ids", [])
-
-def stream_worker_radio(name):
-    s = STREAMS_RADIO[name]
-    while True:
+        while True:
+            data = proc.stdout.read(64 * 1024)
+            if not data:
+                break
+            yield data
+    finally:
         try:
-            ids = s["IDS"]
-            if not ids:
-                ids = load_playlist_ids_radio(name, True)
-                s["IDS"] = ids
-            if not ids:
-                logging.warning(f"[{name}] No playlist ids found; sleeping...")
-                time.sleep(10)
-                continue
+            proc.terminate()
+        except Exception:
+            pass
 
-            vid = ids[s["INDEX"] % len(ids)]
-            s["INDEX"] += 1
-            url = f"https://www.youtube.com/watch?v={vid}"
-            logging.info(f"[{name}] ▶️ {url}")
+# ============================================================
+# HTML TEMPLATES
+# ============================================================
+HOME_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IPTV Restream</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial,Helvetica,sans-serif;margin:0;padding:16px}
+a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;border-radius:8px;display:inline-block}
+a:hover{background:#0f0;color:#000}
+h2{margin-top:4px}
+</style>
+</head>
+<body>
+<h2>📺 IPTV Restream</h2>
+<p>Select category:</p>
+{% for k in groups %}
+  <a href="/list/{{k}}">▶ {{k|capitalize}}</a>
+{% endfor %}
+<p style="margin-top:14px;opacity:.7;font-size:13px">Using public iptv-org playlists.</p>
+</body>
+</html>"""
 
-            cmd = (
-                f'yt-dlp -f "bestaudio/best" --cookies "{COOKIES_PATH}" '
-                f'--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
-                f'-o - --quiet --no-warnings "{url}" | '
-                f'ffmpeg -loglevel quiet -i pipe:0 -ac 1 -ar 44100 -b:a 64k -f mp3 pipe:1'
-            )
+LIST_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ group|capitalize }} Channels</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial,Helvetica,sans-serif;margin:0;padding:16px}
+a{color:#0f0}
+.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0}
+.card img{width:42px;height:42px;object-fit:contain;background:#111;border-radius:6px}
+.btns a{border:1px solid #0f0;padding:6px 8px;border-radius:6px;margin-right:8px;display:inline-block;text-decoration:none}
+.btns a:hover{background:#0f0;color:#000}
+.meta{opacity:.8;font-size:12px}
+</style>
+</head>
+<body>
+<h3>Group: {{ group|capitalize }}</h3>
+<p><a href="/">← Back</a></p>
+{% for ch in channels %}
+<div class="card">
+  <img src="{{ ch.logo or fallback }}" alt="logo" onerror="this.src='{{ fallback }}'">
+  <div style="flex:1">
+    <div><strong>{{ loop.index0 }}.</strong> {{ ch.title }}</div>
+    <div class="meta">{{ ch.group }}{% if ch.tvg_id %} · {{ ch.tvg_id }}{% endif %}</div>
+    <div class="btns">
+      <a href="/play/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Video</a>
+      <a href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio only</a>
+    </div>
+  </div>
+</div>
+{% endfor %}
+</body>
+</html>"""
 
-            proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-
-            while True:
-                chunk = proc.stdout.read(4096)
-                if not chunk:
-                    break
-                # 🟢 Instead of skipping when queue is full, block until space
-                while len(s["QUEUE"]) >= MAX_QUEUE:
-                    time.sleep(0.05)
-                s["QUEUE"].append(chunk)
-
-            proc.wait()
-            logging.info(f"[{name}] ✅ Track completed.")
-            time.sleep(2)  # small delay before next video
-
-        except Exception as e:
-            logging.error(f"[{name}] Worker error: {e}")
-            time.sleep(5)
-
+# ============================================================
+# Routes
+# ============================================================
 @app.route("/")
 def home():
-    playlists = list(PLAYLISTS.keys())
-    html = """<!doctype html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>🎧 YouTube Radio</title>
-<style>
-body{background:#000;color:#0f0;font-family:Arial,Helvetica,sans-serif;text-align:center;margin:0;padding:12px}
-a{display:block;color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;border-radius:8px;font-size:18px}
-a:hover{background:#0f0;color:#000}
-</style></head><body>
-<h2>🎶 YouTube Playlist Radio</h2>
-{% for p in playlists %}
-  <a href="/listen/{{p}}">▶ {{p|capitalize}}</a>
-{% endfor %}
-</body></html>"""
-    return render_template_string(html, playlists=playlists)
+    return render_template_string(HOME_HTML, groups=list(PLAYLISTS.keys()))
 
-@app.route("/listen/<name>")
-def listen_radio_download(name):
-    if name not in STREAMS_RADIO:
+@app.route("/list/<group>")
+def list_group(group):
+    if group not in PLAYLISTS:
         abort(404)
-    s = STREAMS_RADIO[name]
+    try:
+        channels = get_channels(group)
+    except Exception as e:
+        logging.exception("Error loading channels for %s", group)
+        abort(502)
+    return render_template_string(LIST_HTML, group=group, channels=channels, fallback=LOGO_FALLBACK)
+
+@app.route("/play/<group>/<int:idx>")
+def play_channel(group, idx):
+    if group not in PLAYLISTS:
+        abort(404)
+    channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
+    ch = channels[idx]
 
     def gen():
-        while True:
-            if s["QUEUE"]:
-                yield s["QUEUE"].popleft()
-            else:
-                time.sleep(0.05)
-    headers = {"Content-Disposition": f"attachment; filename={name}.mp3"}
+        try:
+            for chunk in proxy_stream(ch["url"]):
+                yield chunk
+        except Exception:
+            return
+
+    mimetype = "video/mp2t"
+    if ".m3u8" in ch["url"]:
+        mimetype = "application/vnd.apple.mpegurl"
+    return Response(stream_with_context(gen()), mimetype=mimetype)
+
+@app.route("/play-audio/<group>/<int:idx>")
+def play_channel_audio(group, idx):
+    if group not in PLAYLISTS:
+        abort(404)
+    channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
+    ch = channels[idx]
+
+    def gen():
+        for chunk in proxy_audio_only(ch["url"]):
+            yield chunk
+
+    headers = {"Content-Disposition": f'inline; filename="{group}_{idx}.mp3"'}
     return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
 
-@app.route("/stream/<name>")
-def stream_audio(name):
-    if name not in STREAMS_RADIO:
-        abort(404)
-    s = STREAMS_RADIO[name]
-    def gen():
-        while True:
-            if s["QUEUE"]:
-                yield s["QUEUE"].popleft()
-            else:
-                time.sleep(0.05)
-    return Response(stream_with_context(gen()), mimetype="audio/mpeg")
-
-# ==============================================================
-# 🔀 Playlist Order Control (Add-only, no modification to core)
-# ==============================================================
-PLAYLIST_ORDER = {name: "normal" for name in PLAYLISTS}  # store current mode
-
-def reorder_playlist(name, mode="normal"):
-    """Reorder playlist entries without affecting the cache logic."""
-    if name not in CACHE_RADIO or "ids" not in CACHE_RADIO[name]:
-        return
-    ids = CACHE_RADIO[name]["ids"]
-    if mode == "shuffle":
-        random.shuffle(ids)
-    elif mode == "reverse":
-        ids = list(reversed(ids))
-    CACHE_RADIO[name]["ids"] = ids
-    CACHE_RADIO[name]["time"] = time.time()
-    save_cache_radio(CACHE_RADIO)
-    PLAYLIST_ORDER[name] = mode
-    logging.info(f"[{name}] Playlist set to {mode} mode with {len(ids)} videos.")
-
-@app.route("/mode/<name>/<mode>")
-def set_playlist_mode(name, mode):
-    """Switch between shuffle, reverse, and normal modes."""
-    if name not in PLAYLISTS:
-        abort(404)
-    if mode not in ["shuffle", "reverse", "normal"]:
-        return f"❌ Invalid mode. Use /mode/<name>/shuffle | reverse | normal"
-    reorder_playlist(name, mode)
-    return f"✅ {name} playlist set to {mode} mode."
-
-@app.route("/status")
-def show_status():
-    """Show current playlist modes."""
-    html = "<h3>🎶 Playlist Modes</h3><ul>"
-    for k, v in PLAYLIST_ORDER.items():
-        html += f"<li>{k}: {v}</li>"
-    html += "</ul>"
-    return html
-
-# ==============================================================
-# 🚀 START SERVER
-# ==============================================================
-
+# ============================================================
+# Entry
+# ============================================================
 if __name__ == "__main__":
-    for pname in PLAYLISTS:
-        STREAMS_RADIO[pname] = {
-            "IDS": load_playlist_ids_radio(pname),
-            "INDEX": 0,
-            "QUEUE": deque(),
-            "LAST_REFRESH": time.time(),
-        }
-        threading.Thread(target=stream_worker_radio, args=(pname,), daemon=True).start()
-
-    logging.info("🚀 YouTube Playlist Radio server running at http://0.0.0.0:8000")
-    app.run(host="0.0.0.0", port=8000) 
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "8000"))
+    logging.info("Starting IPTV Restream server on http://%s:%d", host, port)
+    app.run(host=host, port=port, threaded=True)
