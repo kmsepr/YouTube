@@ -1,33 +1,30 @@
-# -------- Base Image --------
-FROM python:3.10-slim
+FROM python:3.11-slim
 
-# -------- Set working directory --------
-WORKDIR /app
-
-# -------- Install system dependencies --------
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    wget \
     curl \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# -------- Copy your Python code --------
-COPY restream.py /app/restream.py
+# Install Node.js (required for yt-dlp JS challenge solver)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-# -------- Copy cookies file (if available locally) --------
-# If cookies.txt is outside the repo, comment this line and mount in Koyeb instead
-COPY cookies.txt /app/cookies.txt
+WORKDIR /app
 
-# -------- Install Python requirements --------
-# (modify if your script needs more)
-RUN pip install \
-    requests \
-    yt-dlp \
-    websockets \
-    aiohttp
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# -------- Environment variables --------
-ENV COOKIES_FILE=/app/cookies.txt
+# Install yt-dlp with JavaScript challenge solver
+RUN pip install --no-cache-dir "yt-dlp[js]"
 
-# -------- Run the app --------
-CMD ["python", "restream.py"]
+# Gunicorn for production
+RUN pip install --no-cache-dir gunicorn
+
+COPY . .
+
+ENV PYTHONUNBUFFERED=1
+
+CMD ["gunicorn", "-b", "0.0.0.0:8000", "restream:app"]
