@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.INFO)
 # -----------------------------
 # CONFIG
 # -----------------------------
-COOKIE_FILE = "/mnt/data/cookies.txt"
 TMP_DIR = Path("/tmp/ytmp3")
 TMP_DIR.mkdir(exist_ok=True, parents=True)
 
@@ -29,14 +28,6 @@ CHANNELS = {
 }
 
 VIDEO_CACHE = {name: {"videos": [], "last_checked": 0} for name in CHANNELS}
-
-# -----------------------------
-# Load cookies from file
-# -----------------------------
-if os.path.exists(COOKIE_FILE):
-    logging.info(f"Using existing cookies file: {COOKIE_FILE}")
-else:
-    logging.warning(f"Cookies file {COOKIE_FILE} not found! Some videos may fail.")
 
 # -----------------------------
 # Cleanup old files
@@ -62,12 +53,9 @@ def fetch_playlist_videos(name, playlist_url):
         "--dump-single-json",
         "--flat-playlist",
         "--no-warnings",
+        "--cookies-from-browser", "chrome",  # Automatically fetch cookies from Chrome
         playlist_url
     ]
-    if os.path.exists(COOKIE_FILE):
-        cmd.insert(3, "--cookies")
-        cmd.insert(4, COOKIE_FILE)
-
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
@@ -94,12 +82,9 @@ def download_and_convert(video_id, video_url):
             "--audio-format", "mp3",
             "--postprocessor-args", "ffmpeg:-ar 22050 -ac 1 -b:a 40k",
             "--no-warnings",
+            "--cookies-from-browser", "chrome",
             video_url
         ]
-        if os.path.exists(COOKIE_FILE):
-            cmd.insert(5, "--cookies")
-            cmd.insert(6, COOKIE_FILE)
-
         subprocess.run(cmd, check=True)
         if mp3_path.exists():
             return mp3_path
