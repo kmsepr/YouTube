@@ -11,7 +11,21 @@ import random
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# INTERVALS
+# -------------------------------------------------------
+# LOAD COOKIES FROM KOYEB SECRET
+# -------------------------------------------------------
+COOKIE_FILE = "/mnt/data/cookies.txt"
+
+if "COOKIES_TXT" in os.environ:
+    os.makedirs("/mnt/data", exist_ok=True)
+    with open(COOKIE_FILE, "w") as f:
+        f.write(os.environ["COOKIES_TXT"])
+    logging.info("cookies.txt created successfully.")
+else:
+    logging.warning("COOKIES_TXT secret NOT found!")
+
+# -------------------------------------------------------
+
 REFRESH_INTERVAL = 600
 RECHECK_INTERVAL = 1200
 CLEANUP_INTERVAL = 1800
@@ -21,10 +35,7 @@ CHANNELS = {
     "dhruv": "https://www.youtube.com/@dhruvrathee/videos"
 }
 
-VIDEO_CACHE = {
-    name: {"url": None, "thumbnail": "", "last_checked": 0}
-    for name in CHANNELS
-}
+VIDEO_CACHE = {name: {"url": None, "thumbnail": "", "last_checked": 0} for name in CHANNELS}
 
 LAST_VIDEO_ID = {name: None for name in CHANNELS}
 
@@ -32,7 +43,7 @@ TMP_DIR = Path("/tmp/ytmp3")
 TMP_DIR.mkdir(exist_ok=True)
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------
 def cleanup_old_files():
     while True:
         now = time.time()
@@ -45,15 +56,15 @@ def cleanup_old_files():
         time.sleep(CLEANUP_INTERVAL)
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------
 def fetch_latest_video_url(name, channel_url):
     try:
         result = subprocess.run([
             "yt-dlp",
             "--dump-single-json",
             "--playlist-end", "1",
+            "--cookies", COOKIE_FILE,
             "--no-warnings",
-            "--cookies", "/mnt/data/cookies.txt",
             "--compat-options", "no-youtube-unavailable-videos",
             channel_url
         ], capture_output=True, text=True, check=True)
@@ -70,7 +81,7 @@ def fetch_latest_video_url(name, channel_url):
         return None, None, None
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------
 def download_and_convert(channel, video_url):
     final_path = TMP_DIR / f"{channel}.mp3"
 
@@ -80,27 +91,44 @@ def download_and_convert(channel, video_url):
     if not video_url:
         return None
 
+    # ---- TRY FORMAT 91 FIRST ----
     try:
         subprocess.run([
             "yt-dlp",
-            "-f", "91",  # FORCE FORMAT 91
+            "-f", "91",
             "--output", str(TMP_DIR / f"{channel}.%(ext)s"),
             "--extract-audio",
             "--audio-format", "mp3",
             "--postprocessor-args", "ffmpeg:-ar 22050 -ac 1 -b:a 40k",
-            "--cookies", "/mnt/data/cookies.txt",
+            "--cookies", COOKIE_FILE,
             "--no-warnings",
             video_url
         ], check=True)
 
-        return final_path if final_path.exists() else None
-
     except Exception as e:
-        logging.error(f"Download failed for {channel}: {e}")
-        return None
+        logging.error(f"Format 91 not available, using bestaudio: {e}")
+
+        # ---- FALLBACK TO BESTAUDIO ----
+        try:
+            subprocess.run([
+                "yt-dlp",
+                "-f", "bestaudio",
+                "--output", str(TMP_DIR / f"{channel}.%(ext)s"),
+                "--extract-audio",
+                "--audio-format", "mp3",
+                "--postprocessor-args", "ffmpeg:-ar 22050 -ac 1 -b:a 40k",
+                "--cookies", COOKIE_FILE,
+                "--no-warnings",
+                video_url
+            ], check=True)
+        except Exception as e2:
+            logging.error(f"Fallback audio download failed: {e2}")
+            return None
+
+    return final_path if final_path.exists() else None
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------
 def update_video_cache_loop():
     while True:
         for name, url in CHANNELS.items():
@@ -119,7 +147,7 @@ def update_video_cache_loop():
         time.sleep(REFRESH_INTERVAL)
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------
 def auto_download_mp3s():
     while True:
         for name, data in VIDEO_CACHE.items():
@@ -138,7 +166,7 @@ def auto_download_mp3s():
         time.sleep(RECHECK_INTERVAL)
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------
 @app.route("/<channel>.mp3")
 def stream_mp3(channel):
     if channel not in CHANNELS:
@@ -165,17 +193,17 @@ def stream_mp3(channel):
 
     range_header = request.headers.get("Range")
     if range_header:
-        byte1, byte2 = range_header.strip().split("=")[1].split("-")
-        byte1 = int(byte1)
-        byte2 = int(byte2) if byte2 else file_size - 1
-        length = byte2 - byte1 + 1
+        start, end = range_header.strip().split("=")[1].split("-")
+        start = int(start)
+        end = int(end) if end else file_size - 1
+        length = end - start + 1
 
         with open(mp3_path, "rb") as f:
-            f.seek(byte1)
+            f.seek(start)
             data = f.read(length)
 
         headers.update({
-            "Content-Range": f"bytes {byte1}-{byte2}/{file_size}",
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
             "Content-Length": str(length)
         })
         return Response(data, 206, headers)
@@ -187,7 +215,7 @@ def stream_mp3(channel):
     return Response(data, headers=headers)
 
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------------
 @app.route("/")
 def index():
     html = "<h3>Available Streams</h3><ul>"
@@ -208,10 +236,11 @@ def index():
     return html
 
 
-# Background threads
+# Background workers
 threading.Thread(target=update_video_cache_loop, daemon=True).start()
 threading.Thread(target=cleanup_old_files, daemon=True).start()
 threading.Thread(target=auto_download_mp3s, daemon=True).start()
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
