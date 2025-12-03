@@ -195,7 +195,7 @@ def proxy_audio_only(source_url: str):
         "-vn",
         "-ac", "1",
         "-ar", "44100",
-        "-b:a", "64k",
+        "-b:a", "40k",
         "-f", "mp3",
         "pipe:1",
     ]
