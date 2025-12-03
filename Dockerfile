@@ -1,30 +1,27 @@
-# Use official minimal Python image
-FROM python:3.10-slim
+FROM python:3.11-slim
 
-# Install system packages needed for yt-dlp + ffmpeg
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
-    wget \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Install Node.js (needed for yt-dlp JS challenge solver)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy requirements first (for docker caching)
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
 COPY . .
 
-# Make sure tmp mp3 directory exists
-RUN mkdir -p /tmp/ytmp3
+ENV PYTHONUNBUFFERED=1
 
-# Expose Flask port
-EXPOSE 8000
+# Gunicorn for production
+RUN pip install gunicorn
 
-# Run the Flask app
-CMD ["python", "restream.py"]
+CMD ["gunicorn", "-b", "0.0.0.0:8000", "restream:app"]
