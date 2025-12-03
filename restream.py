@@ -482,12 +482,45 @@ body { margin: 0; padding: 0; background: #000; color: #0f0; font-family: Arial,
 .back-btn:hover { background: #0c0; }
 h1 { margin: 0; color: #0ff; }
 .channel-info { background: #111; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #0f0; }
-.stream-container { background: #000; border: 2px solid #0f0; border-radius: 8px; overflow: hidden; }
-#videoPlayer { width: 100%; height: 70vh; background: #000; }
+.stream-container { background: #000; border: 2px solid #0f0; border-radius: 8px; overflow: hidden; position:relative; }
+#videoPlayer { width: 100%; height: 70vh; background: #000; display:block; }
 .stream-status { padding: 15px; background: #111; border-top: 1px solid #0f0; }
 .status-online { color: #0f0; }
 .status-offline { color: #f00; }
 .stream-url { word-break: break-all; font-size: 12px; opacity: 0.7; margin-top: 10px; }
+
+/* Unmute button */
+.unmute-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  background: rgba(0,0,0,0.6);
+  color: #0f0;
+  border: 1px solid #0f0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  backdrop-filter: blur(4px);
+}
+.unmute-btn.hidden { display: none; }
+
+/* Center play overlay if autoplay fails (user gesture required) */
+.overlay-play {
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  background:rgba(0,0,0,0.7);
+  color:#0f0;
+  border:1px solid #0f0;
+  padding:12px 18px;
+  border-radius:8px;
+  cursor:pointer;
+  display:none;
+}
+.overlay-play.visible { display:block; }
 </style>
 </head>
 <body>
@@ -504,10 +537,15 @@ h1 { margin: 0; color: #0ff; }
     </div>
     
     <div class="stream-container">
-        <video id="videoPlayer" controls autoplay playsinline>
-            <source src="/play/{{ group }}/{{ idx }}" type="application/vnd.apple.mpegurl">
+        <!-- muted autoplay + playsinline to allow automatic start on most browsers -->
+        <video id="videoPlayer" controls autoplay muted playsinline>
+            <!-- HLS source served by /play/{{ group }}/{{ idx }} -->
+            <source id="videoSource" src="/play/{{ group }}/{{ idx }}" type="application/vnd.apple.mpegurl">
             Your browser does not support HLS streaming.
         </video>
+
+        <button id="unmuteBtn" class="unmute-btn hidden" title="Unmute">🔊 Unmute</button>
+        <div id="overlayPlay" class="overlay-play">Click to start</div>
     </div>
     
     <div class="stream-status">
@@ -523,29 +561,123 @@ h1 { margin: 0; color: #0ff; }
     </div>
 </div>
 
+<!-- hls.js from CDN (used where native HLS is not available, e.g., Firefox/Chrome desktop) -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.1/dist/hls.min.js"></script>
+
 <script>
-// Video player setup
 const videoPlayer = document.getElementById('videoPlayer');
 const statusElement = document.getElementById('status');
+const unmuteBtn = document.getElementById('unmuteBtn');
+const overlayPlay = document.getElementById('overlayPlay');
 
-// Handle video events
+const src = document.getElementById('videoSource').getAttribute('src');
+
+// Helper to show overlay if autoplay is blocked
+function showOverlay() {
+    overlayPlay.classList.add('visible');
+}
+
+// Attempt HLS.js when needed (non-Safari browsers)
+function initHls() {
+    if (Hls && Hls.isSupported()) {
+        const hls = new Hls({
+            // optional: tweak config if needed
+            maxBufferLength: 30
+        });
+        hls.attachMedia(videoPlayer);
+        hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+            hls.loadSource(src);
+        });
+        hls.on(Hls.Events.ERROR, function (event, data) {
+            console.warn('hls.js error', data);
+            if (data.fatal) {
+                statusElement.textContent = '● Stream error (hls.js)'; 
+                statusElement.className = 'status-offline';
+            }
+        });
+    } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari & other native HLS players
+        videoPlayer.src = src;
+    } else {
+        // No HLS support
+        statusElement.textContent = '● HLS not supported in this browser';
+        statusElement.className = 'status-offline';
+    }
+}
+
+// Make sure video is muted before trying to autoplay (muted autoplay is permitted)
+try {
+    videoPlayer.muted = true;
+    // set playsinline for mobile
+    videoPlayer.setAttribute('playsinline', '');
+} catch (e) {
+    console.warn('Could not set muted/playsinline', e);
+}
+
+// Initialize HLS / source
+initHls();
+
+// Try to autoplay. If blocked, show overlay and a visible play button.
+videoPlayer.play().then(() => {
+    statusElement.textContent = '● Streaming';
+    statusElement.className = 'status-online';
+    // show unmute button because it's currently muted
+    unmuteBtn.classList.remove('hidden');
+}).catch(err => {
+    console.log('Autoplay prevented or failed:', err);
+    statusElement.textContent = '● Click to start streaming';
+    statusElement.className = 'status-offline';
+    // Show overlay to prompt user gesture
+    showOverlay();
+    // show unmute btn (user can click to unmute after play)
+    unmuteBtn.classList.remove('hidden');
+});
+
+// If overlay clicked, try to play (user gesture)
+overlayPlay.addEventListener('click', function () {
+    videoPlayer.play().then(() => {
+        overlayPlay.classList.remove('visible');
+        statusElement.textContent = '● Streaming';
+        statusElement.className = 'status-online';
+    }).catch(e => {
+        console.warn('Play failed after user click', e);
+    });
+});
+
+// Unmute button - will unmute only after playback has started or user gesture
+unmuteBtn.addEventListener('click', function (ev) {
+    // If video is paused, start it (this is a user gesture)
+    if (videoPlayer.paused) {
+        videoPlayer.play().catch(e => console.warn('Play failed on unmute click', e));
+    }
+    // Unmute
+    try {
+        videoPlayer.muted = false;
+        videoPlayer.volume = 0.9;
+    } catch (e) {
+        console.warn('Could not unmute', e);
+    }
+    // Hide unmute button after action
+    unmuteBtn.classList.add('hidden');
+});
+
+// Video event handlers
 videoPlayer.addEventListener('error', function(e) {
     console.error('Video error:', e);
     statusElement.textContent = '● Error loading stream';
     statusElement.className = 'status-offline';
     
-    // Try to get more error details
-    switch(videoPlayer.error.code) {
-        case videoPlayer.error.MEDIA_ERR_ABORTED:
+    switch(videoPlayer.error && videoPlayer.error.code) {
+        case videoPlayer.error && videoPlayer.error.MEDIA_ERR_ABORTED:
             statusElement.textContent = '● Playback was aborted';
             break;
-        case videoPlayer.error.MEDIA_ERR_NETWORK:
+        case videoPlayer.error && videoPlayer.error.MEDIA_ERR_NETWORK:
             statusElement.textContent = '● Network error - channel may be offline';
             break;
-        case videoPlayer.error.MEDIA_ERR_DECODE:
+        case videoPlayer.error && videoPlayer.error.MEDIA_ERR_DECODE:
             statusElement.textContent = '● Decoding error - format not supported';
             break;
-        case videoPlayer.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        case videoPlayer.error && videoPlayer.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
             statusElement.textContent = '● Stream format not supported by browser';
             break;
     }
@@ -553,65 +685,17 @@ videoPlayer.addEventListener('error', function(e) {
 
 videoPlayer.addEventListener('waiting', function() {
     statusElement.textContent = '● Buffering...';
+    statusElement.className = '';
 });
 
 videoPlayer.addEventListener('playing', function() {
     statusElement.textContent = '● Streaming';
     statusElement.className = 'status-online';
+    overlayPlay.classList.remove('visible');
 });
 
 videoPlayer.addEventListener('stalled', function() {
     statusElement.textContent = '● Stream stalled, buffering...';
-});
-
-// Try to play automatically
-videoPlayer.play().catch(error => {
-    console.log('Autoplay prevented:', error);
-    statusElement.textContent = '● Click play to start streaming';
-});
-
-// Add keyboard shortcuts
-document.addEventListener('keydown', function(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    
-    switch(e.key) {
-        case ' ':
-        case 'k':
-            e.preventDefault();
-            if (videoPlayer.paused) videoPlayer.play();
-            else videoPlayer.pause();
-            break;
-        case 'f':
-            e.preventDefault();
-            if (videoPlayer.requestFullscreen) {
-                videoPlayer.requestFullscreen();
-            } else if (videoPlayer.mozRequestFullScreen) {
-                videoPlayer.mozRequestFullScreen();
-            } else if (videoPlayer.webkitRequestFullscreen) {
-                videoPlayer.webkitRequestFullscreen();
-            }
-            break;
-        case 'm':
-            e.preventDefault();
-            videoPlayer.muted = !videoPlayer.muted;
-            break;
-        case 'ArrowRight':
-            e.preventDefault();
-            videoPlayer.currentTime += 10;
-            break;
-        case 'ArrowLeft':
-            e.preventDefault();
-            videoPlayer.currentTime -= 10;
-            break;
-        case 'ArrowUp':
-            e.preventDefault();
-            if (videoPlayer.volume < 0.9) videoPlayer.volume += 0.1;
-            break;
-        case 'ArrowDown':
-            e.preventDefault();
-            if (videoPlayer.volume > 0.1) videoPlayer.volume -= 0.1;
-            break;
-    }
 });
 </script>
 </body>
