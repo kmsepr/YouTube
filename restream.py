@@ -11,14 +11,14 @@ import random
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# INTERVALS (10m check, 20m recheck, cleanup 30m)
+# INTERVALS
 REFRESH_INTERVAL = 600
 RECHECK_INTERVAL = 1200
 CLEANUP_INTERVAL = 1800
 EXPIRE_AGE = 7200
 
 CHANNELS = {
-    "DhruvRathee": "https://www.youtube.com/@dhruvrathee/videos"
+    "dhruv": "https://www.youtube.com/@dhruvrathee/videos"
 }
 
 VIDEO_CACHE = {
@@ -32,9 +32,7 @@ TMP_DIR = Path("/tmp/ytmp3")
 TMP_DIR.mkdir(exist_ok=True)
 
 
-# -----------------------------
-# Cleanup old mp3 files
-# -----------------------------
+# ---------------------------------------------------------------------
 def cleanup_old_files():
     while True:
         now = time.time()
@@ -47,9 +45,7 @@ def cleanup_old_files():
         time.sleep(CLEANUP_INTERVAL)
 
 
-# -----------------------------
-# Fetch latest video from channel
-# -----------------------------
+# ---------------------------------------------------------------------
 def fetch_latest_video_url(name, channel_url):
     try:
         result = subprocess.run([
@@ -70,13 +66,11 @@ def fetch_latest_video_url(name, channel_url):
         return f"https://www.youtube.com/watch?v={video_id}", thumbnail, video_id
 
     except Exception as e:
-        logging.error(f"Failed to fetch latest video for {name}: {e}")
+        logging.error(f"Fetch failed: {e}")
         return None, None, None
 
 
-# -----------------------------
-# Download & extract audio
-# -----------------------------
+# ---------------------------------------------------------------------
 def download_and_convert(channel, video_url):
     final_path = TMP_DIR / f"{channel}.mp3"
 
@@ -89,7 +83,7 @@ def download_and_convert(channel, video_url):
     try:
         subprocess.run([
             "yt-dlp",
-            "-f", "bestaudio",
+            "-f", "91",  # FORCE FORMAT 91
             "--output", str(TMP_DIR / f"{channel}.%(ext)s"),
             "--extract-audio",
             "--audio-format", "mp3",
@@ -106,9 +100,7 @@ def download_and_convert(channel, video_url):
         return None
 
 
-# -----------------------------
-# Cache refresh loop
-# -----------------------------
+# ---------------------------------------------------------------------
 def update_video_cache_loop():
     while True:
         for name, url in CHANNELS.items():
@@ -120,7 +112,6 @@ def update_video_cache_loop():
                     VIDEO_CACHE[name]["url"] = video_url
                     VIDEO_CACHE[name]["thumbnail"] = thumbnail
                     VIDEO_CACHE[name]["last_checked"] = time.time()
-
                     download_and_convert(name, video_url)
 
             time.sleep(random.randint(3, 7))
@@ -128,9 +119,7 @@ def update_video_cache_loop():
         time.sleep(REFRESH_INTERVAL)
 
 
-# -----------------------------
-# Ensure mp3 exists
-# -----------------------------
+# ---------------------------------------------------------------------
 def auto_download_mp3s():
     while True:
         for name, data in VIDEO_CACHE.items():
@@ -149,9 +138,7 @@ def auto_download_mp3s():
         time.sleep(RECHECK_INTERVAL)
 
 
-# -----------------------------
-# Streaming endpoint
-# -----------------------------
+# ---------------------------------------------------------------------
 @app.route("/<channel>.mp3")
 def stream_mp3(channel):
     if channel not in CHANNELS:
@@ -176,7 +163,6 @@ def stream_mp3(channel):
     file_size = os.path.getsize(mp3_path)
     headers = {'Content-Type': 'audio/mpeg', 'Accept-Ranges': 'bytes'}
 
-    # Range request support
     range_header = request.headers.get("Range")
     if range_header:
         byte1, byte2 = range_header.strip().split("=")[1].split("-")
@@ -201,9 +187,7 @@ def stream_mp3(channel):
     return Response(data, headers=headers)
 
 
-# -----------------------------
-# Index with thumbnails
-# -----------------------------
+# ---------------------------------------------------------------------
 @app.route("/")
 def index():
     html = "<h3>Available Streams</h3><ul>"
