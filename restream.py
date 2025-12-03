@@ -20,11 +20,47 @@ app = Flask(__name__)
 REFRESH_INTERVAL = 1800  # 30 minutes
 LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 
-# iptv-org playlists (public, grouped by all/country/category) [web:1][web:5]
+# iptv-org playlists - comprehensive list of categories [web:1][web:4][web:5]
 PLAYLISTS = {
-    "all":   "https://iptv-org.github.io/iptv/index.m3u",          # all channels [web:1]
-    "india": "https://iptv-org.github.io/iptv/countries/in.m3u",   # India-only [web:5]
-    "news":  "https://iptv-org.github.io/iptv/categories/news.m3u" # News category [web:4]
+    # Main playlists
+    "all": "https://iptv-org.github.io/iptv/index.m3u",  # all channels [web:1]
+    
+    # Country-specific
+    "india": "https://iptv-org.github.io/iptv/countries/in.m3u",   # India
+    "usa": "https://iptv-org.github.io/iptv/countries/us.m3u",     # United States
+    "uk": "https://iptv-org.github.io/iptv/countries/uk.m3u",      # United Kingdom
+    "canada": "https://iptv-org.github.io/iptv/countries/ca.m3u",  # Canada
+    "australia": "https://iptv-org.github.io/iptv/countries/au.m3u", # Australia
+    "germany": "https://iptv-org.github.io/iptv/countries/de.m3u", # Germany
+    "france": "https://iptv-org.github.io/iptv/countries/fr.m3u",  # France
+    
+    # Categories
+    "news": "https://iptv-org.github.io/iptv/categories/news.m3u",  # News [web:4]
+    "sports": "https://iptv-org.github.io/iptv/categories/sports.m3u",  # Sports
+    "entertainment": "https://iptv-org.github.io/iptv/categories/entertainment.m3u",  # Entertainment
+    "kids": "https://iptv-org.github.io/iptv/categories/kids.m3u",  # Kids
+    "movies": "https://iptv-org.github.io/iptv/categories/movies.m3u",  # Movies
+    "music": "https://iptv-org.github.io/iptv/categories/music.m3u",  # Music
+    "documentary": "https://iptv-org.github.io/iptv/categories/documentary.m3u",  # Documentary
+    "educational": "https://iptv-org.github.io/iptv/categories/educational.m3u",  # Educational
+    "religious": "https://iptv-org.github.io/iptv/categories/religious.m3u",  # Religious
+    "shopping": "https://iptv-org.github.io/iptv/categories/shopping.m3u",  # Shopping
+    
+    # Language-based
+    "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",  # English
+    "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",  # Hindi
+    "spanish": "https://iptv-org.github.io/iptv/languages/spa.m3u",  # Spanish
+    "french": "https://iptv-org.github.io/iptv/languages/fra.m3u",  # French
+    "german": "https://iptv-org.github.io/iptv/languages/deu.m3u",  # German
+    "arabic": "https://iptv-org.github.io/iptv/languages/ara.m3u",  # Arabic
+    
+    # Special categories
+    "regional": "https://iptv-org.github.io/iptv/categories/regional.m3u",  # Regional
+    "comedy": "https://iptv-org.github.io/iptv/categories/comedy.m3u",  # Comedy
+    "lifestyle": "https://iptv-org.github.io/iptv/categories/lifestyle.m3u",  # Lifestyle
+    "business": "https://iptv-org.github.io/iptv/categories/business.m3u",  # Business
+    "travel": "https://iptv-org.github.io/iptv/categories/travel.m3u",  # Travel
+    "science": "https://iptv-org.github.io/iptv/categories/science.m3u",  # Science & Technology
 }
 
 # Cache: { name: { "time": ts, "channels": [...] } }
@@ -119,12 +155,17 @@ def get_channels(name: str):
 
     url = PLAYLISTS[name]
     logging.info("[%s] Fetching playlist: %s", name, url)
-    resp = requests.get(url, timeout=25)
-    resp.raise_for_status()
-    channels = parse_m3u(resp.text)
-    CACHE[name] = {"time": now, "channels": channels}
-    logging.info("[%s] Loaded %d channels", name, len(channels))
-    return channels
+    try:
+        resp = requests.get(url, timeout=25)
+        resp.raise_for_status()
+        channels = parse_m3u(resp.text)
+        CACHE[name] = {"time": now, "channels": channels}
+        logging.info("[%s] Loaded %d channels", name, len(channels))
+        return channels
+    except Exception as e:
+        logging.error("Failed to load playlist %s: %s", name, e)
+        # Return empty list if playlist fails to load
+        return []
 
 # ============================================================
 # Streaming Helpers
@@ -191,15 +232,64 @@ body{background:#000;color:#0f0;font-family:Arial,Helvetica,sans-serif;margin:0;
 a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;border-radius:8px;display:inline-block}
 a:hover{background:#0f0;color:#000}
 h2{margin-top:4px}
+.category-group{margin-bottom:24px}
+.category-title{color:#0ff;font-size:18px;margin-bottom:12px;border-bottom:1px solid #0ff;padding-bottom:4px}
+.category-title::before{content:"📺 ";margin-right:8px}
 </style>
 </head>
 <body>
 <h2>📺 IPTV Restream</h2>
-<p>Select category:</p>
-{% for k in groups %}
-  <a href="/list/{{k}}">▶ {{k|capitalize}}</a>
-{% endfor %}
-<p style="margin-top:14px;opacity:.7;font-size:13px">Using public iptv-org playlists.</p>
+<p>Select a category:</p>
+
+<div class="category-group">
+    <div class="category-title">All Channels</div>
+    <a href="/list/all">🌍 All Channels</a>
+</div>
+
+<div class="category-group">
+    <div class="category-title">Categories</div>
+    <a href="/list/news">📰 News</a>
+    <a href="/list/sports">⚽ Sports</a>
+    <a href="/list/entertainment">🎭 Entertainment</a>
+    <a href="/list/kids">🧒 Kids</a>
+    <a href="/list/movies">🎬 Movies</a>
+    <a href="/list/music">🎵 Music</a>
+    <a href="/list/documentary">📽️ Documentary</a>
+    <a href="/list/comedy">😂 Comedy</a>
+    <a href="/list/lifestyle">🏠 Lifestyle</a>
+    <a href="/list/business">💼 Business</a>
+    <a href="/list/travel">✈️ Travel</a>
+    <a href="/list/science">🔬 Science & Tech</a>
+    <a href="/list/educational">📚 Educational</a>
+    <a href="/list/religious">🙏 Religious</a>
+    <a href="/list/shopping">🛒 Shopping</a>
+    <a href="/list/regional">📍 Regional</a>
+</div>
+
+<div class="category-group">
+    <div class="category-title">Countries</div>
+    <a href="/list/india">🇮🇳 India</a>
+    <a href="/list/usa">🇺🇸 USA</a>
+    <a href="/list/uk">🇬🇧 UK</a>
+    <a href="/list/canada">🇨🇦 Canada</a>
+    <a href="/list/australia">🇦🇺 Australia</a>
+    <a href="/list/germany">🇩🇪 Germany</a>
+    <a href="/list/france">🇫🇷 France</a>
+</div>
+
+<div class="category-group">
+    <div class="category-title">Languages</div>
+    <a href="/list/english">🇬🇧 English</a>
+    <a href="/list/hindi">🇮🇳 Hindi</a>
+    <a href="/list/spanish">🇪🇸 Spanish</a>
+    <a href="/list/french">🇫🇷 French</a>
+    <a href="/list/german">🇩🇪 German</a>
+    <a href="/list/arabic">🇸🇦 Arabic</a>
+</div>
+
+<p style="margin-top:24px;opacity:.7;font-size:13px;border-top:1px solid #333;padding-top:12px">
+Using public iptv-org playlists. Channels may go offline or change URLs.
+</p>
 </body>
 </html>"""
 
@@ -211,16 +301,21 @@ LIST_HTML = """<!doctype html>
 <style>
 body{background:#000;color:#0f0;font-family:Arial,Helvetica,sans-serif;margin:0;padding:16px}
 a{color:#0f0}
-.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0}
-.card img{width:42px;height:42px;object-fit:contain;background:#111;border-radius:6px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0;background:#111}
+.card img{width:42px;height:42px;object-fit:contain;background:#222;border-radius:6px}
 .btns a{border:1px solid #0f0;padding:6px 8px;border-radius:6px;margin-right:8px;display:inline-block;text-decoration:none}
 .btns a:hover{background:#0f0;color:#000}
 .meta{opacity:.8;font-size:12px}
+.channel-count{opacity:.7;font-size:14px;margin-bottom:16px}
+.empty-message{color:#f00;padding:20px;text-align:center;border:1px solid #f00;border-radius:8px}
 </style>
 </head>
 <body>
-<h3>Group: {{ group|capitalize }}</h3>
-<p><a href="/">← Back</a></p>
+<h3>Category: {{ group|capitalize }}</h3>
+<p><a href="/">← Back to Categories</a></p>
+
+{% if channels %}
+<div class="channel-count">{{ channels|length }} channels found</div>
 {% for ch in channels %}
 <div class="card">
   <img src="{{ ch.logo or fallback }}" alt="logo" onerror="this.src='{{ fallback }}'">
@@ -234,6 +329,12 @@ a{color:#0f0}
   </div>
 </div>
 {% endfor %}
+{% else %}
+<div class="empty-message">
+  No channels available for this category.<br>
+  The playlist might be temporarily unavailable or empty.
+</div>
+{% endif %}
 </body>
 </html>"""
 
@@ -242,7 +343,7 @@ a{color:#0f0}
 # ============================================================
 @app.route("/")
 def home():
-    return render_template_string(HOME_HTML, groups=list(PLAYLISTS.keys()))
+    return render_template_string(HOME_HTML)
 
 @app.route("/list/<group>")
 def list_group(group):
@@ -299,4 +400,15 @@ def play_channel_audio(group, idx):
 # Entry
 # ============================================================
 if __name__ == "__main__":
+    print("=" * 60)
+    print("IPTV Restream Server")
+    print("=" * 60)
+    print(f"Available categories: {len(PLAYLISTS)}")
+    print("Main Categories: All, News, Sports, Entertainment, Kids, Movies, Music")
+    print("Countries: India, USA, UK, Canada, Australia, Germany, France")
+    print("Languages: English, Hindi, Spanish, French, German, Arabic")
+    print("=" * 60)
+    print("Starting server on http://0.0.0.0:8000")
+    print("=" * 60)
+    
     app.run(host="0.0.0.0", port=8000, debug=False)
