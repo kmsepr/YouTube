@@ -1,40 +1,33 @@
-FROM python:3.11-slim
+# -------- Base Image --------
+FROM python:3.10-slim
 
-# ---------------------------------------------------
-# Install system dependencies
-# ---------------------------------------------------
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    curl \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# ---------------------------------------------------
-# Install Node.js (needed for yt-dlp JS challenge)
-# ---------------------------------------------------
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
+# -------- Set working directory --------
 WORKDIR /app
 
-# ---------------------------------------------------
-# Install Python dependencies
-# ---------------------------------------------------
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# -------- Install system dependencies --------
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp with JS support
-RUN pip install --no-cache-dir "yt-dlp[js]" gunicorn
+# -------- Copy your Python code --------
+COPY restream.py /app/restream.py
 
-# ---------------------------------------------------
-# Copy app
-# ---------------------------------------------------
-COPY . .
+# -------- Copy cookies file (if available locally) --------
+# If cookies.txt is outside the repo, comment this line and mount in Koyeb instead
+COPY cookies.txt /app/cookies.txt
 
-ENV PYTHONUNBUFFERED=1
+# -------- Install Python requirements --------
+# (modify if your script needs more)
+RUN pip install \
+    requests \
+    yt-dlp \
+    websockets \
+    aiohttp
 
-# ---------------------------------------------------
-# Run with Gunicorn
-# ---------------------------------------------------
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "restream:app"]
+# -------- Environment variables --------
+ENV COOKIES_FILE=/app/cookies.txt
+
+# -------- Run the app --------
+CMD ["python", "restream.py"]
