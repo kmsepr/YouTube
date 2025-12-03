@@ -165,11 +165,18 @@ def proxy_audio_only(source_url: str):
             if not data:
                 break
             yield data
+    except Exception as e:
+        logging.error("Error in audio stream: %s", e)
     finally:
         try:
             proc.terminate()
-        except Exception:
-            pass
+            # Wait a bit for graceful termination
+            time.sleep(0.5)
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+        except Exception as e:
+            logging.error("Error terminating ffmpeg process: %s", e)
 
 # ============================================================
 # HTML TEMPLATES
@@ -261,8 +268,8 @@ def play_channel(group, idx):
         try:
             for chunk in proxy_stream(ch["url"]):
                 yield chunk
-        except Exception:
-            return
+        except Exception as e:
+            logging.error("Error streaming video: %s", e)
 
     mimetype = "video/mp2t"
     if ".m3u8" in ch["url"]:
@@ -279,8 +286,11 @@ def play_channel_audio(group, idx):
     ch = channels[idx]
 
     def gen():
-        for chunk in proxy_audio_only(ch["url"]):
-            yield chunk
+        try:
+            for chunk in proxy_audio_only(ch["url"]):
+                yield chunk
+        except Exception as e:
+            logging.error("Error streaming audio: %s", e)
 
     headers = {"Content-Disposition": f'inline; filename="{group}_{idx}.mp3"'}
     return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
@@ -289,7 +299,4 @@ def play_channel_audio(group, idx):
 # Entry
 # ============================================================
 if __name__ == "__main__":
-    host = os.environ.get("HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "8000"))
-    logging.info("Starting IPTV Restream server on http://%s:%d", host, port)
-    app.run(host=host, port=port, threaded=True)
+    app.run(host="0.0.0.0", port=8000, debug=False)
