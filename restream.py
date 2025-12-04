@@ -5,7 +5,7 @@ import logging
 import random
 import requests
 import subprocess
-from flask import Flask, Response, render_template_string, abort, stream_with_context
+from flask import Flask, Response, render_template_string, abort, stream_with_context, request
 
 # ============================================================
 # Basic Setup
@@ -118,7 +118,11 @@ def get_channels(name: str):
     if cached and now - cached.get("time", 0) < REFRESH_INTERVAL:
         return cached["channels"]
 
-    url = PLAYLISTS[name]
+    url = PLAYLISTS.get(name)
+    if not url:
+        logging.error("Playlist not found: %s", name)
+        return []
+
     logging.info("[%s] Fetching playlist: %s", name, url)
     try:
         resp = requests.get(url, timeout=25)
@@ -157,7 +161,7 @@ def proxy_audio_only(source_url: str):
             pass
 
 # ============================================================
-# HTML — HOME + FAVOURITES
+# HTML TEMPLATES
 # ============================================================
 HOME_HTML = """<!doctype html>
 <html>
@@ -166,9 +170,9 @@ HOME_HTML = """<!doctype html>
 <title>IPTV Restream</title>
 <style>
 body{background:#000;color:#0f0;font-family:Arial;padding:16px}
-a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;
-  border-radius:8px;display:inline-block}
+a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;border-radius:8px;display:inline-block}
 a:hover{background:#0f0;color:#000}
+.search-btn{display:inline-block;padding:8px;border:1px solid #0f0;border-radius:8px;margin-left:8px}
 </style>
 </head>
 <body>
@@ -177,6 +181,11 @@ a:hover{background:#0f0;color:#000}
 <a href="/random" style="background:#0f0;color:#000">🎲 Random Channel</a>
 <a href="/favourites" style="border-color:yellow;color:yellow">⭐ Favourites</a>
 
+<form action="/search" method="get" style="display:inline-block;margin-left:8px;">
+  <input id="home-search" name="q" placeholder="Search..." style="padding:8px;border-radius:6px;background:#111;border:1px solid #0f0;color:#0f0">
+  <button class="search-btn" type="submit">🔍</button>
+</form>
+
 <p>Select a category:</p>
 {% for key, url in playlists.items() %}
 <a href="/list/{{ key }}">{{ key|capitalize }}</a>
@@ -184,23 +193,21 @@ a:hover{background:#0f0;color:#000}
 </body>
 </html>"""
 
-# ============================================================
-# LIST PAGE WITH ADD FAV BUTTON
-# ============================================================
 LIST_HTML = """<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ group|capitalize }} Channels</title>
 <style>
-body{background:#000;color:#0f0;font-family:Arial;padding:16px}
-.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;
-      padding:8px;margin:8px 0;background:#111}
+body{background:#000;color:#0f0;font-family:Arial;padding:12px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0;background:#111}
 .card img{width:42px;height:42px;background:#222;border-radius:6px}
 a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
 a.btn:hover{background:#0f0;color:#000}
-button{padding:6px 8px;border-radius:6px;border:1px solid yellow;color:yellow;background:#222}
-input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;background:#111;color:#0f0;margin-bottom:12px}
+button.k{padding:6px 8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0;margin-left:6px}
+input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0}
+.keypad{margin-top:8px}
+.kbtn{padding:8px;width:36px;border-radius:6px;margin:2px;border:1px solid #0f0;background:#111;color:#0f0}
 </style>
 </head>
 <body>
@@ -208,18 +215,36 @@ input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;bac
 <a href="/">← Back</a>
 <a class="btn" href="/random/{{ group }}" style="background:#0f0;color:#000">🎲 Random</a>
 
-<input class="search" id="search" placeholder="Search..." onkeyup="filterChannels()">
+<div style="margin-top:10px;">
+  <input id="search" placeholder="Type or use keypad..." >
+  <button class="k" onclick="doSearch()">🔍</button>
+  <button class="k" onclick="clearSearch()">✖</button>
+</div>
 
-<div id="channelList">
+<!-- optional small keypad for HMD-style input (on-screen) -->
+<div class="keypad" role="application">
+  <button class="kbtn" onclick="updateSearch('1')">1</button>
+  <button class="kbtn" onclick="updateSearch('2')">2</button>
+  <button class="kbtn" onclick="updateSearch('3')">3</button>
+  <button class="kbtn" onclick="updateSearch('4')">4</button>
+  <button class="kbtn" onclick="updateSearch('5')">5</button>
+  <button class="kbtn" onclick="updateSearch('6')">6</button>
+  <button class="kbtn" onclick="updateSearch('7')">7</button>
+  <button class="kbtn" onclick="updateSearch('8')">8</button>
+  <button class="kbtn" onclick="updateSearch('9')">9</button>
+  <button class="kbtn" onclick="updateSearch('0')">0</button>
+</div>
+
+<div id="channelList" style="margin-top:12px;">
 {% for ch in channels %}
-<div class="card">
+<div class="card" data-url="{{ ch.url }}" data-title="{{ ch.title }}">
   <img src="{{ ch.logo or fallback }}" onerror="this.src='{{ fallback }}'">
   <div style="flex:1">
     <strong>{{ ch.title }}</strong>
-    <div>
+    <div style="margin-top:6px">
       <a class="btn" href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Watch</a>
       <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio</a>
-      <button onclick='addFav("{{ ch.title }}","{{ ch.url }}","{{ ch.logo }}")'>⭐</button>
+      <button class="k" onclick='addFav("{{ ch.title|replace('"','&#34;') }}","{{ ch.url }}","{{ ch.logo }}")'>⭐</button>
     </div>
   </div>
 </div>
@@ -227,78 +252,117 @@ input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;bac
 </div>
 
 <script>
-function filterChannels(){
-  let s=document.getElementById('search').value.toLowerCase();
-  document.querySelectorAll('.card').forEach(c=>{
-    c.style.display=c.innerText.toLowerCase().includes(s)?'':'none';
-  });
+/* keypad + search integration */
+function updateSearch(ch){
+  const inp = document.getElementById('search');
+  inp.value = inp.value + ch;
+  // do not auto-filter — user will press 🔍 (doSearch)
 }
 
-function addFav(title,url,logo){
-  let f=JSON.parse(localStorage.getItem("favs")||"[]");
-  f.push({title:title,url:url,logo:logo});
-  localStorage.setItem("favs",JSON.stringify(f));
-  alert("Added to favourites");
+function clearSearch(){
+  document.getElementById('search').value = '';
+}
+
+function doSearch(){
+  const q = document.getElementById('search').value.trim();
+  if(!q) {
+    alert("Type something to search");
+    return;
+  }
+  // go to the flat search results page
+  window.location = '/search?q=' + encodeURIComponent(q);
+}
+
+/* favourites client-side */
+function addFav(title, url, logo){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  // prevent duplicates
+  if (!f.find(x => x.url === url)) {
+    f.push({title:title, url:url, logo:logo});
+    localStorage.setItem('favs', JSON.stringify(f));
+    alert('Added to favourites');
+  } else {
+    alert('Already in favourites');
+  }
 }
 </script>
 </body>
 </html>
 """
 
-# ============================================================
-# FAVOURITES PAGE
-# ============================================================
-FAV_HTML = """<!doctype html>
+SEARCH_HTML = """<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Favourites</title>
+<title>Search results</title>
 <style>
-body{background:#000;color:#0f0;font-family:Arial;padding:16px}
-.card{border:1px solid yellow;padding:10px;margin:8px 0;border-radius:8px;background:#111}
-.card img{width:40px;height:40px;margin-right:8px}
-a{color:yellow}
-button{background:#222;color:red;border:1px solid red;padding:6px;border-radius:6px}
+body{background:#000;color:#0f0;font-family:Arial;padding:12px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0;background:#111}
+.card img{width:42px;height:42px;background:#222;border-radius:6px}
+a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
+button.k{padding:6px 8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0;margin-left:6px}
+input#q{width:70%;padding:8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0}
 </style>
 </head>
 <body>
-<h2>⭐ Favourites</h2>
+<h3>Search results for: "<span id="term">{{ query }}</span>"</h3>
 <a href="/">← Back</a>
 
-<div id="favs"></div>
+<div style="margin-top:10px;">
+  <input id="q" value="{{ query }}" placeholder="Search..." >
+  <button class="k" onclick="goSearch()">🔍</button>
+  <button class="k" onclick="clearBox()">✖</button>
+</div>
+
+<div id="results" style="margin-top:12px;">
+{% if results %}
+  {% for r in results %}
+    <div class="card">
+      <img src="{{ r.logo or fallback }}" onerror="this.src='{{ fallback }}'">
+      <div style="flex:1">
+        <strong>{{ r.title }}</strong>
+        <div style="margin-top:6px">
+          <a class="btn" href="/watch/all/{{ r.index }}" target="_blank">▶ Watch</a>
+          <a class="btn" href="/play-audio/all/{{ r.index }}" target="_blank">🎧 Audio</a>
+          <button class="k" onclick='addFav("{{ r.title|replace('"','&#34;') }}","{{ r.url }}","{{ r.logo }}")'>⭐</button>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div style="padding:16px;border:1px solid #0f0;border-radius:8px">No results found.</div>
+{% endif %}
+</div>
 
 <script>
-function loadFavs(){
-  let f=JSON.parse(localStorage.getItem("favs")||"[]");
-  let html="";
-  f.forEach((x,i)=>{
-    html+=`
-      <div class="card">
-        <img src="${x.logo||''}">
-        <strong>${x.title}</strong><br>
-        <a href="${x.url}" target="_blank">▶ Play</a>
-        <button onclick="del(${i})">Delete</button>
-      </div>
-    `;
-  });
-  document.getElementById("favs").innerHTML=html;
+function goSearch(){
+  const q = document.getElementById('q').value.trim();
+  if(!q){ alert("Type something"); return; }
+  window.location = '/search?q=' + encodeURIComponent(q);
 }
-function del(i){
-  let f=JSON.parse(localStorage.getItem("favs")||"[]");
-  f.splice(i,1);
-  localStorage.setItem("favs",JSON.stringify(f));
-  loadFavs();
-}
-loadFavs();
-</script>
+function clearBox(){ document.getElementById('q').value = ''; }
 
+// favourites (same as other pages)
+function addFav(title, url, logo){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  if (!f.find(x => x.url === url)) {
+    f.push({title:title, url:url, logo:logo});
+    localStorage.setItem('favs', JSON.stringify(f));
+    alert('Added to favourites');
+  } else {
+    alert('Already in favourites');
+  }
+}
+
+/* allow pressing Enter key to search */
+document.getElementById('q').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ goSearch(); }
+});
+</script>
 </body>
 </html>
 """
 
-# ============================================================
-# WATCH HTML SAME AS BEFORE
-# ============================================================
 WATCH_HTML = """<!doctype html>
 <html>
 <head>
@@ -318,6 +382,55 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 </html>
 """
 
+FAV_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Favourites</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial;padding:16px}
+.card{border:1px solid yellow;padding:10px;margin:8px 0;border-radius:8px;background:#111;display:flex;align-items:center;gap:10px}
+.card img{width:40px;height:40px;margin-right:8px}
+a{color:yellow}
+button{background:#222;color:red;border:1px solid red;padding:6px;border-radius:6px}
+</style>
+</head>
+<body>
+<h2>⭐ Favourites</h2>
+<a href="/">← Back</a>
+
+<div id="favs"></div>
+
+<script>
+function loadFavs(){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  let html = '';
+  f.forEach((c,i) => {
+    html += `
+      <div class="card">
+        <img src="${c.logo||''}" onerror="this.src='${'""" + LOGO_FALLBACK + """'}'">
+        <div style="flex:1">
+          <strong>${c.title}</strong><br>
+          <a href="${c.url}" target="_blank">▶ Play</a>
+        </div>
+        <button onclick="del(${i})">Delete</button>
+      </div>
+    `;
+  });
+  document.getElementById('favs').innerHTML = html;
+}
+function del(i){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  f.splice(i,1);
+  localStorage.setItem('favs', JSON.stringify(f));
+  loadFavs();
+}
+loadFavs();
+</script>
+</body>
+</html>
+"""
+
 # ============================================================
 # ROUTES
 # ============================================================
@@ -326,10 +439,6 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 def home():
     return render_template_string(HOME_HTML, playlists=PLAYLISTS)
 
-@app.route("/favourites")
-def favourites():
-    return render_template_string(FAV_HTML)
-
 @app.route("/list/<group>")
 def list_group(group):
     if group not in PLAYLISTS:
@@ -337,9 +446,39 @@ def list_group(group):
     channels = get_channels(group)
     return render_template_string(LIST_HTML, group=group, channels=channels, fallback=LOGO_FALLBACK)
 
+@app.route("/favourites")
+def favourites():
+    return render_template_string(FAV_HTML)
+
+@app.route("/search")
+def search():
+    q = request.args.get("q", "").strip()
+    # if no query, show page with empty results
+    if not q:
+        return render_template_string(SEARCH_HTML, query="", results=[], fallback=LOGO_FALLBACK)
+
+    ql = q.lower()
+    # search in the 'all' playlist for a flat list
+    all_channels = get_channels("all")
+    results = []
+    for idx, ch in enumerate(all_channels):
+        title = (ch.get("title") or "").lower()
+        group = (ch.get("group") or "").lower()
+        # match against title or group or url
+        if ql in title or ql in group or ql in (ch.get("url") or "").lower():
+            results.append({
+                "index": idx,
+                "title": ch.get("title"),
+                "url": ch.get("url"),
+                "logo": ch.get("logo"),
+            })
+    return render_template_string(SEARCH_HTML, query=q, results=results, fallback=LOGO_FALLBACK)
+
 @app.route("/random")
 def random_global():
     channels = get_channels("all")
+    if not channels:
+        abort(404)
     ch = random.choice(channels)
     url = ch["url"]
     mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
@@ -347,7 +486,11 @@ def random_global():
 
 @app.route("/random/<group>")
 def random_category(group):
+    if group not in PLAYLISTS:
+        abort(404)
     channels = get_channels(group)
+    if not channels:
+        abort(404)
     ch = random.choice(channels)
     url = ch["url"]
     mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
@@ -355,7 +498,11 @@ def random_category(group):
 
 @app.route("/watch/<group>/<int:idx>")
 def watch_channel(group, idx):
+    if group not in PLAYLISTS:
+        abort(404)
     channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
     ch = channels[idx]
     url = ch["url"]
     mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
@@ -363,13 +510,23 @@ def watch_channel(group, idx):
 
 @app.route("/play-audio/<group>/<int:idx>")
 def play_channel_audio(group, idx):
-    ch = get_channels(group)[idx]
+    if group not in PLAYLISTS:
+        abort(404)
+    channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
+    ch = channels[idx]
+
     def gen():
         for chunk in proxy_audio_only(ch["url"]):
             yield chunk
+
     headers = {"Access-Control-Allow-Origin": "*"}
     return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
 
+# ============================================================
+# Entry
+# ============================================================
 if __name__ == "__main__":
     print("Running IPTV Restream on http://0.0.0.0:8000")
     app.run(host="0.0.0.0", port=8000, debug=False, threaded=True)
