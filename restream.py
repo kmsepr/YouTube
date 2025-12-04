@@ -522,36 +522,13 @@ def play_channel_audio(group, idx):
 
 @app.route("/watch/fav/<int:index>")
 def watch_fav(index):
-    # Render the same player HTML as /watch
-    html = """
-    <!doctype html>
-    <html>
-    <head>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Favourite Channel</title>
-    <style>
-    body{background:#000;color:#0f0;margin:0}
-    video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10px}
-    </style>
-    </head>
-    <body>
-    <h3 style="text-align:center" id="title"></h3>
-    <video id="vid" controls autoplay playsinline>
-      <source id="vidsrc" src="" type="">
-    </video>
+    try:
+        channel = favorites[index]  # your saved favorites list
+    except IndexError:
+        return "Favorite not found", 404
 
-    <script>
-    const f = JSON.parse(localStorage.getItem('favs'))[%d];
-    document.getElementById('title').innerText = f.title;
-    const v = document.getElementById('vidsrc');
-    v.src = f.url;
-    v.type = f.url.includes('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp4';
-    document.getElementById('vid').load();
-    </script>
-    </body>
-    </html>
-    """ % index
-    return html
+    mime_type = "application/x-mpegURL" if channel['url'].endswith('.m3u8') else "video/mp4"
+    return render_template_string(WATCH_HTML, channel=channel, mime_type=mime_type)
 
 
 @app.route("/play-audio/fav/<int:index>")
