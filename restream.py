@@ -212,6 +212,293 @@ def cleanup_old_low():
 threading.Thread(target=cleanup_old_low, daemon=True).start()
 
 # ============================================================
+# HTML TEMPLATES
+# ============================================================
+HOME_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IPTV Restream</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial;padding:16px}
+a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;border-radius:8px;display:inline-block}
+a:hover{background:#0f0;color:#000}
+.search-btn{display:inline-block;padding:8px;border:1px solid #0f0;border-radius:8px;margin-left:8px}
+</style>
+</head>
+<body>
+<h2>🌐 IPTV</h2>
+
+<a href="/random" style="background:#0f0;color:#000">🎲 Random Channel</a>
+<a href="/favourites" style="border-color:yellow;color:yellow">⭐ Favourites</a>
+
+<form action="/search" method="get" style="display:inline-block;margin-left:8px;">
+  <input id="home-search" name="q" placeholder="Search..." style="padding:8px;border-radius:6px;background:#111;border:1px solid #0f0;color:#0f0">
+  <button class="search-btn" type="submit">🔍</button>
+</form>
+
+<p>Select a category:</p>
+{% for key, url in playlists.items() %}
+<a href="/list/{{ key }}">{{ key|capitalize }}</a>
+{% endfor %}
+</body>
+</html>"""
+
+LIST_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ group|capitalize }} Channels</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial;padding:12px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0;background:#111}
+.card img{width:42px;height:42px;background:#222;border-radius:6px}
+a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
+a.btn:hover{background:#0f0;color:#000}
+button.k{padding:6px 8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0;margin-left:6px}
+input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0}
+.keypad{margin-top:8px}
+.kbtn{padding:8px;width:36px;border-radius:6px;margin:2px;border:1px solid #0f0;background:#111;color:#0f0}
+</style>
+</head>
+<body>
+<h3>{{ group|capitalize }} Channels</h3>
+<a href="/">← Back</a>
+<a class="btn" href="/random/{{ group }}" style="background:#0f0;color:#000">🎲 Random</a>
+
+<div style="margin-top:10px;">
+  <input id="search" placeholder="Type or use keypad..." >
+  <button class="k" onclick="doSearch()">🔍</button>
+  <button class="k" onclick="clearSearch()">✖</button>
+</div>
+
+<!-- optional small keypad for HMD-style input (on-screen) -->
+<div class="keypad" role="application">
+  <button class="kbtn" onclick="updateSearch('1')">1</button>
+  <button class="kbtn" onclick="updateSearch('2')">2</button>
+  <button class="kbtn" onclick="updateSearch('3')">3</button>
+  <button class="kbtn" onclick="updateSearch('4')">4</button>
+  <button class="kbtn" onclick="updateSearch('5')">5</button>
+  <button class="kbtn" onclick="updateSearch('6')">6</button>
+  <button class="kbtn" onclick="updateSearch('7')">7</button>
+  <button class="kbtn" onclick="updateSearch('8')">8</button>
+  <button class="kbtn" onclick="updateSearch('9')">9</button>
+  <button class="kbtn" onclick="updateSearch('0')">0</button>
+</div>
+
+<div id="channelList" style="margin-top:12px;">
+{% for ch in channels %}
+<div class="card" data-url="{{ ch.url }}" data-title="{{ ch.title }}">
+  <div style="font-size:20px;width:40px;text-align:center;color:#0f0">{{ loop.index }}.</div>
+
+  <img src="{{ ch.logo or fallback }}" onerror="this.src='{{ fallback }}'">
+
+  <div style="flex:1">
+    <strong>{{ ch.title }}</strong>
+    <div style="margin-top:6px">
+      <a class="btn" href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Watch</a>
+      <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio</a>
+      <button class="k" onclick='addFav("{{ ch.title|replace('"','&#34;') }}","{{ ch.url }}","{{ ch.logo }}")'>⭐</button>
+    </div>
+  </div>
+</div>
+{% endfor %}
+</div>
+
+<script>
+/* keypad + search integration */
+function updateSearch(ch){
+  const inp = document.getElementById('search');
+  inp.value = inp.value + ch;
+  // do not auto-filter — user will press 🔍 (doSearch)
+}
+
+function clearSearch(){
+  document.getElementById('search').value = '';
+}
+
+function doSearch(){
+  const q = document.getElementById('search').value.trim();
+  if(!q) {
+    alert("Type something to search");
+    return;
+  }
+  // go to the flat search results page
+  window.location = '/search?q=' + encodeURIComponent(q);
+}
+
+/* favourites client-side */
+function addFav(title, url, logo){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  // prevent duplicates
+  if (!f.find(x => x.url === url)) {
+    f.push({title:title, url:url, logo:logo});
+    localStorage.setItem('favs', JSON.stringify(f));
+    alert('Added to favourites');
+  } else {
+    alert('Already in favourites');
+  }
+}
+</script>
+</body>
+</html>
+"""
+
+SEARCH_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Search results</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial;padding:12px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0;background:#111}
+.card img{width:42px;height:42px;background:#222;border-radius:6px}
+a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
+button.k{padding:6px 8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0;margin-left:6px}
+input#q{width:70%;padding:8px;border-radius:6px;border:1px solid #0f0;background:#111;color:#0f0}
+</style>
+</head>
+<body>
+<h3>Search results for: "<span id="term">{{ query }}</span>"</h3>
+<a href="/">← Back</a>
+
+<div style="margin-top:10px;">
+  <input id="q" value="{{ query }}" placeholder="Search..." >
+  <button class="k" onclick="goSearch()">🔍</button>
+  <button class="k" onclick="clearBox()">✖</button>
+</div>
+
+<div id="results" style="margin-top:12px;">
+{% if results %}
+  {% for r in results %}
+    <div class="card">
+      <img src="{{ r.logo or fallback }}" onerror="this.src='{{ fallback }}'">
+      <div style="flex:1">
+        <strong>{{ r.title }}</strong>
+        <div style="margin-top:6px">
+          <a class="btn" href="/watch/all/{{ r.index }}" target="_blank">▶ Watch</a>
+          <a class="btn" href="/play-audio/all/{{ r.index }}" target="_blank">🎧 Audio</a>
+          <button class="k" onclick='addFav("{{ r.title|replace('"','&#34;') }}","{{ r.url }}","{{ r.logo }}")'>⭐</button>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div style="padding:16px;border:1px solid #0f0;border-radius:8px">No results found.</div>
+{% endif %}
+</div>
+
+<script>
+function goSearch(){
+  const q = document.getElementById('q').value.trim();
+  if(!q){ alert("Type something"); return; }
+  window.location = '/search?q=' + encodeURIComponent(q);
+}
+function clearBox(){ document.getElementById('q').value = ''; }
+
+// favourites (same as other pages)
+function addFav(title, url, logo){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  if (!f.find(x => x.url === url)) {
+    f.push({title:title, url:url, logo:logo});
+    localStorage.setItem('favs', JSON.stringify(f));
+    alert('Added to favourites');
+  } else {
+    alert('Already in favourites');
+  }
+}
+
+/* allow pressing Enter key to search */
+document.getElementById('q').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ goSearch(); }
+});
+</script>
+</body>
+</html>
+"""
+
+WATCH_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ channel.title }}</title>
+<style>
+body{background:#000;color:#0f0;margin:0}
+video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10px}
+</style>
+</head>
+<body>
+<h3 style="text-align:center">{{ channel.title }}</h3>
+<video id="vid" controls autoplay playsinline>
+  <source src="{{ channel.url }}" type="{{ mime_type }}">
+</video>
+</body>
+</html>
+"""
+
+FAV_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Favourites</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial;padding:12px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid yellow;border-radius:8px;padding:8px;margin:8px 0;background:#111}
+.card img{width:42px;height:42px;background:#222;border-radius:6px}
+a.btn{border:1px solid yellow;color:yellow;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
+a.btn:hover{background:yellow;color:#000}
+</style>
+</head>
+<body>
+<h2>⭐ Favourites</h2>
+<a href="/">← Back</a>
+
+<div id="favList" style="margin-top:12px;"></div>
+
+<script>
+function loadFavs(){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  let html = "";
+  f.forEach((c,i)=>{
+    html += `
+    <div class="card">
+      <img src="${c.logo||''}" onerror="this.src='${'""" + LOGO_FALLBACK + """'}'">
+      
+      <!-- delete button on right side -->
+      <button onclick="delFav(${i})" 
+              style="background:#000;color:red;border:1px solid red;
+                     border-radius:6px;padding:4px 10px;font-size:20px;
+                     cursor:pointer;">
+        ×
+      </button>
+
+      <div style="flex:1">
+        <strong>${c.title}</strong>
+        <div style="margin-top:6px">
+          <a class="btn"
+             href="/watch-direct?title=${encodeURIComponent(c.title)}&url=${encodeURIComponent(c.url)}&logo=${encodeURIComponent(c.logo)}"
+             target="_blank">▶ Watch</a>
+          <a class="btn" href="/play-audio/fav/${i}" target="_blank">🎧 Audio</a>
+        </div>
+      </div>
+    </div>`;
+  });
+  document.getElementById('favList').innerHTML = html;
+}
+
+function delFav(index){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  f.splice(index, 1);
+  localStorage.setItem('favs', JSON.stringify(f));
+  loadFavs();
+}
+loadFavs();
+</script>
+</body>
+</html>
+"""
+
+# ============================================================
 # Flask routes (watch, low, audio, favourites, search)
 # ============================================================
 @app.route("/")
