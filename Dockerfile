@@ -1,24 +1,25 @@
-# Use Python 3.11 slim base
 FROM python:3.11-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install ffmpeg (needed for audio proxy)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy Python dependencies
+# Copy requirements
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app code
+# Copy your full project
 COPY . .
 
-# Unbuffered output for logs
-ENV PYTHONUNBUFFERED=1
+# Expose the port used by Gunicorn/Flask
+EXPOSE 8000
 
-# Run the Flask app using Gunicorn
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "restream:app"]
+# Start the app using Gunicorn
+# IMPORTANT: The format must be module:variable → restream:app
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "restream:app"]
