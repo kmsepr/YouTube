@@ -409,12 +409,21 @@ function loadFavs(){
     html += `
     <div class="card">
       <img src="${c.logo||''}" onerror="this.src='${'""" + LOGO_FALLBACK + """'}'">
+      
+      <!-- delete button on right side -->
+      <button onclick="delFav(${i})" 
+              style="background:#000;color:red;border:1px solid red;
+                     border-radius:6px;padding:4px 10px;font-size:20px;
+                     cursor:pointer;">
+        ×
+      </button>
+
       <div style="flex:1">
         <strong>${c.title}</strong>
         <div style="margin-top:6px">
           <a class="btn"
-   href="/watch-direct?title=${encodeURIComponent(c.title)}&url=${encodeURIComponent(c.url)}&logo=${encodeURIComponent(c.logo)}"
-   target="_blank">▶ Watch</a>
+             href="/watch-direct?title=${encodeURIComponent(c.title)}&url=${encodeURIComponent(c.url)}&logo=${encodeURIComponent(c.logo)}"
+             target="_blank">▶ Watch</a>
           <a class="btn" href="/play-audio/fav/${i}" target="_blank">🎧 Audio</a>
         </div>
       </div>
@@ -423,6 +432,12 @@ function loadFavs(){
   document.getElementById('favList').innerHTML = html;
 }
 
+function delFav(index){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  f.splice(index, 1);
+  localStorage.setItem('favs', JSON.stringify(f));
+  loadFavs();
+}
 loadFavs();
 </script>
 </body>
