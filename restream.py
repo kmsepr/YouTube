@@ -393,7 +393,6 @@ body{background:#000;color:#0f0;font-family:Arial;padding:12px}
 .card img{width:42px;height:42px;background:#222;border-radius:6px}
 a.btn{border:1px solid yellow;color:yellow;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
 a.btn:hover{background:yellow;color:#000}
-button.k{padding:6px 8px;border-radius:6px;border:1px solid red;background:#111;color:red;margin-left:6px}
 </style>
 </head>
 <body>
@@ -415,19 +414,11 @@ function loadFavs(){
         <div style="margin-top:6px">
           <a class="btn" href="/watch/fav/${i}" target="_blank">▶ Watch</a>
           <a class="btn" href="/play-audio/fav/${i}" target="_blank">🎧 Audio</a>
-          <button class="k" onclick="del(${i})">🗑 Delete</button>
         </div>
       </div>
     </div>`;
   });
   document.getElementById('favList').innerHTML = html;
-}
-
-function del(i){
-  let f = JSON.parse(localStorage.getItem('favs') || '[]');
-  f.splice(i,1);
-  localStorage.setItem('favs', JSON.stringify(f));
-  loadFavs();
 }
 
 loadFavs();
