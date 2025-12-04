@@ -4,7 +4,6 @@ import time
 import logging
 import requests
 import subprocess
-from collections import deque
 from flask import Flask, Response, render_template_string, abort, stream_with_context
 
 # ============================================================
@@ -20,7 +19,9 @@ app = Flask(__name__)
 REFRESH_INTERVAL = 1800  # 30 minutes
 LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 
-# iptv-org playlists
+# ============================================================
+# IPTV-ORG PLAYLISTS + QUALITY CATEGORIES
+# ============================================================
 PLAYLISTS = {
     "all": "https://iptv-org.github.io/iptv/index.m3u",
 
@@ -28,36 +29,23 @@ PLAYLISTS = {
     "india": "https://iptv-org.github.io/iptv/countries/in.m3u",
     "usa": "https://iptv-org.github.io/iptv/countries/us.m3u",
     "uk": "https://iptv-org.github.io/iptv/countries/uk.m3u",
-    "canada": "https://iptv-org.github.io/iptv/countries/ca.m3u",
-    "australia": "https://iptv-org.github.io/iptv/countries/au.m3u",
-    "germany": "https://iptv-org.github.io/iptv/countries/de.m3u",
-    "france": "https://iptv-org.github.io/iptv/countries/fr.m3u",
 
     # Categories
     "news": "https://iptv-org.github.io/iptv/categories/news.m3u",
     "sports": "https://iptv-org.github.io/iptv/categories/sports.m3u",
-    "entertainment": "https://iptv-org.github.io/iptv/categories/entertainment.m3u",
-    "kids": "https://iptv-org.github.io/iptv/categories/kids.m3u",
     "movies": "https://iptv-org.github.io/iptv/categories/movies.m3u",
-    "music": "https://iptv-org.github.io/iptv/categories/music.m3u",
-    "documentary": "https://iptv-org.github.io/iptv/categories/documentary.m3u",
-    "educational": "https://iptv-org.github.io/iptv/categories/educational.m3u",
-    "religious": "https://iptv-org.github.io/iptv/categories/religious.m3u",
-    "shopping": "https://iptv-org.github.io/iptv/categories/shopping.m3u",
-    "regional": "https://iptv-org.github.io/iptv/categories/regional.m3u",
-    "comedy": "https://iptv-org.github.io/iptv/categories/comedy.m3u",
-    "lifestyle": "https://iptv-org.github.io/iptv/categories/lifestyle.m3u",
-    "business": "https://iptv-org.github.io/iptv/categories/business.m3u",
-    "travel": "https://iptv-org.github.io/iptv/categories/travel.m3u",
-    "science": "https://iptv-org.github.io/iptv/categories/science.m3u",
 
-    # Language
+    # Languages
     "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",
     "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",
-    "spanish": "https://iptv-org.github.io/iptv/languages/spa.m3u",
-    "french": "https://iptv-org.github.io/iptv/languages/fra.m3u",
-    "german": "https://iptv-org.github.io/iptv/languages/deu.m3u",
-    "arabic": "https://iptv-org.github.io/iptv/languages/ara.m3u",
+
+    # ======================================================
+    # NEW QUALITY (AUTO-FILTERED) VIRTUAL CATEGORIES
+    # ======================================================
+    "360p": None,
+    "576p": None,
+    "240p": None,
+    "160p": None,
 }
 
 # Cache
@@ -135,6 +123,10 @@ def parse_m3u(text: str):
 # Cache Loader
 # ============================================================
 def get_channels(name: str):
+    # handle virtual quality categories
+    if name in ["360p", "576p", "240p", "160p"]:
+        return filter_by_quality(name)
+
     now = time.time()
     cached = CACHE.get(name)
     if cached and now - cached.get("time", 0) < REFRESH_INTERVAL:
@@ -154,7 +146,30 @@ def get_channels(name: str):
         return []
 
 # ============================================================
-# AUDIO-ONLY (still proxied)
+# QUALITY CATEGORY FILTER
+# ============================================================
+def filter_by_quality(q):
+    patterns = {
+        "360p": ["360", "360p", "/360/", "_360"],
+        "576p": ["576", "576p", "/576/", "_576"],
+        "240p": ["240", "240p", "/240/", "_240"],
+        "160p": ["160", "160p", "/160/", "_160"],
+    }
+
+    keys = patterns[q]
+    all_ch = get_channels("all")
+
+    results = []
+    for ch in all_ch:
+        u = ch["url"].lower()
+        if any(k in u for k in keys):
+            results.append(ch)
+
+    logging.info("Quality filter %s → %d channels", q, len(results))
+    return results
+
+# ============================================================
+# AUDIO-ONLY STREAMING
 # ============================================================
 def proxy_audio_only(source_url: str):
     cmd = [
@@ -185,7 +200,7 @@ def proxy_audio_only(source_url: str):
             pass
 
 # ============================================================
-# HTML TEMPLATES
+# HTML TEMPLATES (unchanged)
 # ============================================================
 HOME_HTML = """<!doctype html>
 <html>
@@ -281,29 +296,29 @@ def home():
 def list_group(group):
     if group not in PLAYLISTS:
         abort(404)
+
+    channels = get_channels(group)
     return render_template_string(
         LIST_HTML,
         group=group,
-        channels=get_channels(group),
+        channels=channels,
         fallback=LOGO_FALLBACK
     )
 
 @app.route("/watch/<group>/<int:idx>")
 def watch_channel(group, idx):
-    if group not in PLAYLISTS:
-        abort(404)
     channels = get_channels(group)
     if idx < 0 or idx >= len(channels):
         abort(404)
 
     ch = channels[idx]
+    url = ch["url"]
 
-    # Browser raw playback detection
-    if ".m3u8" in ch["url"]:
+    if ".m3u8" in url:
         mime = "application/vnd.apple.mpegurl"
-    elif ".mp4" in ch["url"]:
+    elif ".mp4" in url:
         mime = "video/mp4"
-    elif ".webm" in ch["url"]:
+    elif ".webm" in url:
         mime = "video/webm"
     else:
         mime = "video/mp2t"
@@ -311,15 +326,11 @@ def watch_channel(group, idx):
     return render_template_string(
         WATCH_HTML,
         channel=ch,
-        group=group,
-        idx=idx,
         mime_type=mime
     )
 
 @app.route("/play-audio/<group>/<int:idx>")
 def play_channel_audio(group, idx):
-    if group not in PLAYLISTS:
-        abort(404)
     channels = get_channels(group)
     if idx < 0 or idx >= len(channels):
         abort(404)
@@ -332,7 +343,7 @@ def play_channel_audio(group, idx):
 
     headers = {
         "Content-Disposition": f'inline; filename="{group}_{idx}.mp3"',
-        'Access-Control-Allow-Origin': '*',
+        "Access-Control-Allow-Origin": "*",
     }
 
     return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
