@@ -202,7 +202,7 @@ a:hover{background:#0f0;color:#000}
 </style>
 </head>
 <body>
-<h2>📺 IPTV Restream</h2>
+<h2>🌐 IPTV</h2>
 
 <a href="/random" style="background:#0f0;color:#000">🎲 Random Channel</a>
 <a href="/favourites" style="border-color:yellow;color:yellow">⭐ Favourites</a>
