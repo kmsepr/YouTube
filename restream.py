@@ -235,12 +235,17 @@ body{background:#000;color:#0f0;font-family:Arial;margin:0;padding:16px}
 .card img{width:42px;height:42px;object-fit:contain;background:#222;border-radius:6px}
 a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:10px}
 a.btn:hover{background:#0f0;color:#000}
+input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;background:#111;color:#0f0;font-size:16px;margin-bottom:12px}
 </style>
 </head>
 <body>
 <h3>{{ group|capitalize }} Channels</h3>
 <a href="/">← Back</a>
 
+<!-- 🔍 Search Bar -->
+<input type="text" id="search" class="search" placeholder="Search channels..." onkeyup="filterChannels()">
+
+<div id="channelList">
 {% for ch in channels %}
 <div class="card">
   <img src="{{ ch.logo or fallback }}" onerror="this.src='{{ fallback }}'">
@@ -253,8 +258,22 @@ a.btn:hover{background:#0f0;color:#000}
   </div>
 </div>
 {% endfor %}
+</div>
+
+<script>
+function filterChannels() {
+    let input = document.getElementById('search').value.toLowerCase();
+    let cards = document.querySelectorAll('.card');
+    cards.forEach(card => {
+        let txt = card.innerText.toLowerCase();
+        card.style.display = txt.includes(input) ? '' : 'none';
+    });
+}
+</script>
+
 </body>
-</html>"""
+</html>
+"""
 
 WATCH_HTML = """<!doctype html>
 <html>
