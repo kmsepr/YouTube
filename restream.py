@@ -189,40 +189,34 @@ def proxy_audio_only(source_url: str):
 # ============================================================
 # 144p video proxy
 # ============================================================
-def proxy_144p(source_url: str):
-    cmd = [
-        "ffmpeg", "-loglevel", "error",
-        "-i", source_url,
-        "-vf", "scale=-2:144",        # keep aspect ratio, height=144
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-b:v", "150k",
-        "-maxrate", "200k",
-        "-bufsize", "300k",
-        "-c:a", "aac",
-        "-b:a", "32k",
-        "-f", "hls",
-        "-hls_time", "4",
-        "-hls_list_size", "5",
-        "-hls_flags", "delete_segments",
-        "pipe:1",
-    ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        while True:
-            data = proc.stdout.read(64 * 1024)
-            if not data:
-                break
-            yield data
-    finally:
+def proxy_144p(url):
+    def generate():
+        process = subprocess.Popen(
+            [
+                "ffmpeg",
+                "-i", url,
+                "-vf", "scale=256:144",   # 144p resolution (16:9 safe)
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-b:v", "150k",            # bitrate for 144p
+                "-c:a", "aac",
+                "-b:a", "48k",
+                "-f", "mpegts",
+                "pipe:1"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
         try:
-            proc.terminate()
-            time.sleep(0.5)
-            if proc.poll() is None:
-                proc.kill()
-        except:
-            pass
+            for chunk in iter(lambda: process.stdout.read(1024), b""):
+                yield chunk
+        finally:
+            process.kill()
 
+    return Response(
+        stream_with_context(generate()),
+        mimetype="video/mp2t"
+    )
 # ============================================================
 # HTML TEMPLATES
 # ============================================================
@@ -309,7 +303,7 @@ input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;backg
     <strong>{{ ch.title }}</strong>
     <div style="margin-top:6px">
       <a class="btn" href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Watch</a>
-      <a class="btn" href="/watch-low/{{ group }}/{{ loop.index0 }}" target="_blank">📉 240p</a>
+      <a class="btn" href="/watch-low/{{ group }}/{{ loop.index0 }}" target="_blank">📉 144p</a>
       <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio</a>
       <button class="k" onclick='addFav("{{ ch.title|replace('"','&#34;') }}","{{ ch.url }}","{{ ch.logo }}")'>⭐</button>
     </div>
@@ -603,21 +597,6 @@ def watch_low(group, idx):
     mime = "application/vnd.apple.mpegurl"
     return render_template_string(WATCH_HTML, channel=channel, mime_type=mime)
 
-# low quality HLS stream
-@app.route("/low/<group>/<int:idx>.m3u8")
-def low_quality_hls(group, idx):
-    if group not in PLAYLISTS:
-        abort(404)
-    channels = get_channels(group)
-    if idx < 0 or idx >= len(channels):
-        abort(404)
-    ch = channels[idx]
-
-    return Response(
-        stream_with_context(proxy_144p(ch["url"])),
-        mimetype="application/vnd.apple.mpegurl",
-        headers={"Access-Control-Allow-Origin": "*"}
-    )
 
 @app.route("/play-audio/<group>/<int:idx>")
 def play_channel_audio(group, idx):
