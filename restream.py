@@ -388,43 +388,48 @@ FAV_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Favourites</title>
 <style>
-body{background:#000;color:#0f0;font-family:Arial;padding:16px}
-.card{border:1px solid yellow;padding:10px;margin:8px 0;border-radius:8px;background:#111;display:flex;align-items:center;gap:10px}
-.card img{width:40px;height:40px;margin-right:8px}
-a{color:yellow}
-button{background:#222;color:red;border:1px solid red;padding:6px;border-radius:6px}
+body{background:#000;color:#0f0;font-family:Arial;padding:12px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid yellow;border-radius:8px;padding:8px;margin:8px 0;background:#111}
+.card img{width:42px;height:42px;background:#222;border-radius:6px}
+a.btn{border:1px solid yellow;color:yellow;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
+a.btn:hover{background:yellow;color:#000}
+button.k{padding:6px 8px;border-radius:6px;border:1px solid red;background:#111;color:red;margin-left:6px}
 </style>
 </head>
 <body>
 <h2>⭐ Favourites</h2>
 <a href="/">← Back</a>
 
-<div id="favs"></div>
+<div id="favList" style="margin-top:12px;"></div>
 
 <script>
 function loadFavs(){
   let f = JSON.parse(localStorage.getItem('favs') || '[]');
-  let html = '';
-  f.forEach((c,i) => {
+  let html = "";
+  f.forEach((c,i)=>{
     html += `
-      <div class="card">
-        <img src="${c.logo||''}" onerror="this.src='${'""" + LOGO_FALLBACK + """'}'">
-        <div style="flex:1">
-          <strong>${c.title}</strong><br>
-          <a href="${c.url}" target="_blank">▶ Play</a>
+    <div class="card">
+      <img src="${c.logo||''}" onerror="this.src='${'""" + LOGO_FALLBACK + """'}'">
+      <div style="flex:1">
+        <strong>${c.title}</strong>
+        <div style="margin-top:6px">
+          <a class="btn" href="/watch/fav/${i}" target="_blank">▶ Watch</a>
+          <a class="btn" href="/play-audio/fav/${i}" target="_blank">🎧 Audio</a>
+          <button class="k" onclick="del(${i})">🗑 Delete</button>
         </div>
-        <button onclick="del(${i})">Delete</button>
       </div>
-    `;
+    </div>`;
   });
-  document.getElementById('favs').innerHTML = html;
+  document.getElementById('favList').innerHTML = html;
 }
+
 function del(i){
   let f = JSON.parse(localStorage.getItem('favs') || '[]');
   f.splice(i,1);
   localStorage.setItem('favs', JSON.stringify(f));
   loadFavs();
 }
+
 loadFavs();
 </script>
 </body>
@@ -523,6 +528,35 @@ def play_channel_audio(group, idx):
 
     headers = {"Access-Control-Allow-Origin": "*"}
     return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
+
+@app.route("/watch/fav/<int:index>")
+def watch_fav(index):
+    favs = []
+    try:
+        favs = request.cookies.get("favs_override")  # not used but keep
+    except:
+        pass
+    # LocalStorage is client-side — so we redirect directly to URL
+    # Browser will open external URL itself
+    return "<script>location.href=JSON.parse(localStorage.getItem('favs'))[%d].url</script>" % index
+
+
+@app.route("/play-audio/fav/<int:index>")
+def play_audio_fav(index):
+    return """
+    <script>
+    let f = JSON.parse(localStorage.getItem('favs'))[%d];
+    window.location = '/play-audio-direct?u=' + encodeURIComponent(f.url);
+    </script>
+    """ % index
+
+@app.route("/play-audio-direct")
+def play_audio_direct():
+    u = request.args.get("u")
+    if not u:
+        abort(404)
+    return Response(stream_with_context(proxy_audio_only(u)),
+                    mimetype="audio/mpeg")
 
 # ============================================================
 # Entry
