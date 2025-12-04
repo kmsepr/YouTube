@@ -187,20 +187,20 @@ def proxy_audio_only(source_url: str):
             pass
 
 # ============================================================
-# 240p video proxy
+# 144p video proxy
 # ============================================================
-def proxy_240p(source_url: str):
+def proxy_144p(source_url: str):
     cmd = [
         "ffmpeg", "-loglevel", "error",
         "-i", source_url,
-        "-vf", "scale=-2:240",        # keep aspect ratio, height=240
+        "-vf", "scale=-2:144",        # keep aspect ratio, height=144
         "-c:v", "libx264",
         "-preset", "veryfast",
-        "-b:v", "300k",
-        "-maxrate", "400k",
-        "-bufsize", "600k",
+        "-b:v", "150k",
+        "-maxrate", "200k",
+        "-bufsize", "300k",
         "-c:a", "aac",
-        "-b:a", "64k",
+        "-b:a", "32k",
         "-f", "hls",
         "-hls_time", "4",
         "-hls_list_size", "5",
@@ -614,7 +614,7 @@ def low_quality_hls(group, idx):
     ch = channels[idx]
 
     return Response(
-        stream_with_context(proxy_240p(ch["url"])),
+        stream_with_context(proxy_144p(ch["url"])),
         mimetype="application/vnd.apple.mpegurl",
         headers={"Access-Control-Allow-Origin": "*"}
     )
