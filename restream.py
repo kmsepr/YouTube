@@ -221,10 +221,17 @@ input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;backg
   <button class="k" onclick="clearSearch()">✖</button>
 </div>
 
+<!-- optional small keypad for HMD-style input (on-screen) -->
 <div class="keypad" role="application">
-  {% for i in range(1,10) %}
-    <button class="kbtn" onclick="updateSearch('{{ i }}')">{{ i }}</button>
-  {% endfor %}
+  <button class="kbtn" onclick="updateSearch('1')">1</button>
+  <button class="kbtn" onclick="updateSearch('2')">2</button>
+  <button class="kbtn" onclick="updateSearch('3')">3</button>
+  <button class="kbtn" onclick="updateSearch('4')">4</button>
+  <button class="kbtn" onclick="updateSearch('5')">5</button>
+  <button class="kbtn" onclick="updateSearch('6')">6</button>
+  <button class="kbtn" onclick="updateSearch('7')">7</button>
+  <button class="kbtn" onclick="updateSearch('8')">8</button>
+  <button class="kbtn" onclick="updateSearch('9')">9</button>
   <button class="kbtn" onclick="updateSearch('0')">0</button>
 </div>
 
@@ -245,17 +252,38 @@ input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;backg
 </div>
 
 <script>
-function updateSearch(ch){ document.getElementById('search').value += ch; }
-function clearSearch(){ document.getElementById('search').value = ''; }
+/* keypad + search integration */
+function updateSearch(ch){
+  const inp = document.getElementById('search');
+  inp.value = inp.value + ch;
+  // do not auto-filter — user will press 🔍 (doSearch)
+}
+
+function clearSearch(){
+  document.getElementById('search').value = '';
+}
+
 function doSearch(){
   const q = document.getElementById('search').value.trim();
-  if(!q){ alert("Type something to search"); return; }
+  if(!q) {
+    alert("Type something to search");
+    return;
+  }
+  // go to the flat search results page
   window.location = '/search?q=' + encodeURIComponent(q);
 }
-function addFav(title,url,logo){
-  let f = JSON.parse(localStorage.getItem('favs')||'[]');
-  if(!f.find(x=>x.url===url)){ f.push({title,url,logo}); localStorage.setItem('favs',JSON.stringify(f)); alert('Added to favourites'); }
-  else{ alert('Already in favourites'); }
+
+/* favourites client-side */
+function addFav(title, url, logo){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  // prevent duplicates
+  if (!f.find(x => x.url === url)) {
+    f.push({title:title, url:url, logo:logo});
+    localStorage.setItem('favs', JSON.stringify(f));
+    alert('Added to favourites');
+  } else {
+    alert('Already in favourites');
+  }
 }
 </script>
 </body>
@@ -307,10 +335,29 @@ input#q{width:70%;padding:8px;border-radius:6px;border:1px solid #0f0;background
 </div>
 
 <script>
-function goSearch(){ const q=document.getElementById('q').value.trim(); if(!q){alert("Type something");return;} window.location='/search?q='+encodeURIComponent(q);}
-function clearBox(){document.getElementById('q').value='';}
-function addFav(title,url,logo){let f=JSON.parse(localStorage.getItem('favs')||'[]');if(!f.find(x=>x.url===url)){f.push({title,url,logo});localStorage.setItem('favs',JSON.stringify(f));alert('Added to favourites');}else{alert('Already in favourites');}}
-document.getElementById('q').addEventListener('keydown',function(e){if(e.key==='Enter'){goSearch();}});
+function goSearch(){
+  const q = document.getElementById('q').value.trim();
+  if(!q){ alert("Type something"); return; }
+  window.location = '/search?q=' + encodeURIComponent(q);
+}
+function clearBox(){ document.getElementById('q').value = ''; }
+
+// favourites (same as other pages)
+function addFav(title, url, logo){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  if (!f.find(x => x.url === url)) {
+    f.push({title:title, url:url, logo:logo});
+    localStorage.setItem('favs', JSON.stringify(f));
+    alert('Added to favourites');
+  } else {
+    alert('Already in favourites');
+  }
+}
+
+/* allow pressing Enter key to search */
+document.getElementById('q').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ goSearch(); }
+});
 </script>
 </body>
 </html>
@@ -375,7 +422,14 @@ function loadFavs(){
   });
   document.getElementById('favList').innerHTML = html;
 }
-function del(i){let f=JSON.parse(localStorage.getItem('favs')||'[]'); f.splice(i,1); localStorage.setItem('favs',JSON.stringify(f)); loadFavs();}
+
+function del(i){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  f.splice(i,1);
+  localStorage.setItem('favs', JSON.stringify(f));
+  loadFavs();
+}
+
 loadFavs();
 </script>
 </body>
@@ -385,6 +439,7 @@ loadFavs();
 # ============================================================
 # ROUTES
 # ============================================================
+
 @app.route("/")
 def home():
     return render_template_string(HOME_HTML, playlists=PLAYLISTS)
@@ -403,15 +458,109 @@ def favourites():
 @app.route("/search")
 def search():
     q = request.args.get("q", "").strip()
+    # if no query, show page with empty results
     if not q:
         return render_template_string(SEARCH_HTML, query="", results=[], fallback=LOGO_FALLBACK)
 
     ql = q.lower()
+    # search in the 'all' playlist for a flat list
     all_channels = get_channels("all")
     results = []
     for idx, ch in enumerate(all_channels):
         title = (ch.get("title") or "").lower()
         group = (ch.get("group") or "").lower()
+        # match against title or group or url
         if ql in title or ql in group or ql in (ch.get("url") or "").lower():
-            results.append({"index": idx,"title": ch.get("title"),"url": ch.get("url"),"logo": ch.get("logo")})
-    return render_template_string(SEARCH_HTML, query=q,
+            results.append({
+                "index": idx,
+                "title": ch.get("title"),
+                "url": ch.get("url"),
+                "logo": ch.get("logo"),
+            })
+    return render_template_string(SEARCH_HTML, query=q, results=results, fallback=LOGO_FALLBACK)
+
+@app.route("/random")
+def random_global():
+    channels = get_channels("all")
+    if not channels:
+        abort(404)
+    ch = random.choice(channels)
+    url = ch["url"]
+    mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
+    return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
+
+@app.route("/random/<group>")
+def random_category(group):
+    if group not in PLAYLISTS:
+        abort(404)
+    channels = get_channels(group)
+    if not channels:
+        abort(404)
+    ch = random.choice(channels)
+    url = ch["url"]
+    mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
+    return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
+
+@app.route("/watch/<group>/<int:idx>")
+def watch_channel(group, idx):
+    if group not in PLAYLISTS:
+        abort(404)
+    channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
+    ch = channels[idx]
+    url = ch["url"]
+    mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
+    return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
+
+@app.route("/play-audio/<group>/<int:idx>")
+def play_channel_audio(group, idx):
+    if group not in PLAYLISTS:
+        abort(404)
+    channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
+    ch = channels[idx]
+
+    def gen():
+        for chunk in proxy_audio_only(ch["url"]):
+            yield chunk
+
+    headers = {"Access-Control-Allow-Origin": "*"}
+    return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
+
+@app.route("/watch/fav/<int:index>")
+def watch_fav(index):
+    favs = []
+    try:
+        favs = request.cookies.get("favs_override")  # not used but keep
+    except:
+        pass
+    # LocalStorage is client-side — so we redirect directly to URL
+    # Browser will open external URL itself
+    return "<script>location.href=JSON.parse(localStorage.getItem('favs'))[%d].url</script>" % index
+
+
+@app.route("/play-audio/fav/<int:index>")
+def play_audio_fav(index):
+    return """
+    <script>
+    let f = JSON.parse(localStorage.getItem('favs'))[%d];
+    window.location = '/play-audio-direct?u=' + encodeURIComponent(f.url);
+    </script>
+    """ % index
+
+@app.route("/play-audio-direct")
+def play_audio_direct():
+    u = request.args.get("u")
+    if not u:
+        abort(404)
+    return Response(stream_with_context(proxy_audio_only(u)),
+                    mimetype="audio/mpeg")
+
+# ============================================================
+# Entry
+# ============================================================
+if __name__ == "__main__":
+    print("Running IPTV Restream on http://0.0.0.0:8000")
+    app.run(host="0.0.0.0", port=8000, debug=False, threaded=True)
