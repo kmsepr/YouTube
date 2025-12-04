@@ -5,7 +5,7 @@ import logging
 import requests
 import subprocess
 from collections import deque
-from flask import Flask, Response, render_template_string, abort, stream_with_context, request, redirect
+from flask import Flask, Response, render_template_string, abort, stream_with_context
 
 # ============================================================
 # Basic Setup
@@ -20,61 +20,53 @@ app = Flask(__name__)
 REFRESH_INTERVAL = 1800  # 30 minutes
 LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 
-# iptv-org playlists - comprehensive list of categories [web:1][web:4][web:5]
+# iptv-org playlists
 PLAYLISTS = {
-    # Main playlists
-    "all": "https://iptv-org.github.io/iptv/index.m3u",  # all channels [web:1]
+    "all": "https://iptv-org.github.io/iptv/index.m3u",
 
-    # Country-specific
-    "india": "https://iptv-org.github.io/iptv/countries/in.m3u",   # India
-    "usa": "https://iptv-org.github.io/iptv/countries/us.m3u",     # United States
-    "uk": "https://iptv-org.github.io/iptv/countries/uk.m3u",      # United Kingdom
-    "canada": "https://iptv-org.github.io/iptv/countries/ca.m3u",  # Canada
-    "australia": "https://iptv-org.github.io/iptv/countries/au.m3u", # Australia
-    "germany": "https://iptv-org.github.io/iptv/countries/de.m3u", # Germany
-    "france": "https://iptv-org.github.io/iptv/countries/fr.m3u",  # France
+    # Country
+    "india": "https://iptv-org.github.io/iptv/countries/in.m3u",
+    "usa": "https://iptv-org.github.io/iptv/countries/us.m3u",
+    "uk": "https://iptv-org.github.io/iptv/countries/uk.m3u",
+    "canada": "https://iptv-org.github.io/iptv/countries/ca.m3u",
+    "australia": "https://iptv-org.github.io/iptv/countries/au.m3u",
+    "germany": "https://iptv-org.github.io/iptv/countries/de.m3u",
+    "france": "https://iptv-org.github.io/iptv/countries/fr.m3u",
 
     # Categories
-    "news": "https://iptv-org.github.io/iptv/categories/news.m3u",  # News [web:4]
-    "sports": "https://iptv-org.github.io/iptv/categories/sports.m3u",  # Sports
-    "entertainment": "https://iptv-org.github.io/iptv/categories/entertainment.m3u",  # Entertainment
-    "kids": "https://iptv-org.github.io/iptv/categories/kids.m3u",  # Kids
-    "movies": "https://iptv-org.github.io/iptv/categories/movies.m3u",  # Movies
-    "music": "https://iptv-org.github.io/iptv/categories/music.m3u",  # Music
-    "documentary": "https://iptv-org.github.io/iptv/categories/documentary.m3u",  # Documentary
-    "educational": "https://iptv-org.github.io/iptv/categories/educational.m3u",  # Educational
-    "religious": "https://iptv-org.github.io/iptv/categories/religious.m3u",  # Religious
-    "shopping": "https://iptv-org.github.io/iptv/categories/shopping.m3u",  # Shopping
+    "news": "https://iptv-org.github.io/iptv/categories/news.m3u",
+    "sports": "https://iptv-org.github.io/iptv/categories/sports.m3u",
+    "entertainment": "https://iptv-org.github.io/iptv/categories/entertainment.m3u",
+    "kids": "https://iptv-org.github.io/iptv/categories/kids.m3u",
+    "movies": "https://iptv-org.github.io/iptv/categories/movies.m3u",
+    "music": "https://iptv-org.github.io/iptv/categories/music.m3u",
+    "documentary": "https://iptv-org.github.io/iptv/categories/documentary.m3u",
+    "educational": "https://iptv-org.github.io/iptv/categories/educational.m3u",
+    "religious": "https://iptv-org.github.io/iptv/categories/religious.m3u",
+    "shopping": "https://iptv-org.github.io/iptv/categories/shopping.m3u",
+    "regional": "https://iptv-org.github.io/iptv/categories/regional.m3u",
+    "comedy": "https://iptv-org.github.io/iptv/categories/comedy.m3u",
+    "lifestyle": "https://iptv-org.github.io/iptv/categories/lifestyle.m3u",
+    "business": "https://iptv-org.github.io/iptv/categories/business.m3u",
+    "travel": "https://iptv-org.github.io/iptv/categories/travel.m3u",
+    "science": "https://iptv-org.github.io/iptv/categories/science.m3u",
 
-    # Language-based
-    "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",  # English
-    "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",  # Hindi
-    "spanish": "https://iptv-org.github.io/iptv/languages/spa.m3u",  # Spanish
-    "french": "https://iptv-org.github.io/iptv/languages/fra.m3u",  # French
-    "german": "https://iptv-org.github.io/iptv/languages/deu.m3u",  # German
-    "arabic": "https://iptv-org.github.io/iptv/languages/ara.m3u",  # Arabic
-
-    # Special categories
-    "regional": "https://iptv-org.github.io/iptv/categories/regional.m3u",  # Regional
-    "comedy": "https://iptv-org.github.io/iptv/categories/comedy.m3u",  # Comedy
-    "lifestyle": "https://iptv-org.github.io/iptv/categories/lifestyle.m3u",  # Lifestyle
-    "business": "https://iptv-org.github.io/iptv/categories/business.m3u",  # Business
-    "travel": "https://iptv-org.github.io/iptv/categories/travel.m3u",  # Travel
-    "science": "https://iptv-org.github.io/iptv/categories/science.m3u",  # Science & Technology
+    # Language
+    "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",
+    "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",
+    "spanish": "https://iptv-org.github.io/iptv/languages/spa.m3u",
+    "french": "https://iptv-org.github.io/iptv/languages/fra.m3u",
+    "german": "https://iptv-org.github.io/iptv/languages/deu.m3u",
+    "arabic": "https://iptv-org.github.io/iptv/languages/ara.m3u",
 }
 
-# Cache: { name: { "time": ts, "channels": [...] } }
+# Cache
 CACHE = {}
 
 # ============================================================
 # M3U Parsing
 # ============================================================
 def parse_extinf(line: str):
-    """
-    Parse an #EXTINF line of extended M3U.
-    Example: #EXTINF:-1 tvg-id="X" tvg-logo="Y" group-title="News", Channel Name
-    Returns: (attrs: dict, title: str)
-    """
     if "," in line:
         left, title = line.split(",", 1)
     else:
@@ -111,11 +103,6 @@ def parse_extinf(line: str):
     return attrs, title.strip()
 
 def parse_m3u(text: str):
-    """
-    Parse M3U content into list of channels.
-    Each channel: {title, url, logo, group, tvg_id}
-    M3U format is widely used for IPTV, with EXTM3U/EXTINF tags defining streams. [web:23][web:28]
-    """
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     channels = []
     i = 0
@@ -145,7 +132,7 @@ def parse_m3u(text: str):
     return channels
 
 # ============================================================
-# Cache + Loader
+# Cache Loader
 # ============================================================
 def get_channels(name: str):
     now = time.time()
@@ -164,39 +151,12 @@ def get_channels(name: str):
         return channels
     except Exception as e:
         logging.error("Failed to load playlist %s: %s", name, e)
-        # Return empty list if playlist fails to load
         return []
 
 # ============================================================
-# Streaming Helpers
+# AUDIO-ONLY (still proxied)
 # ============================================================
-def proxy_stream(source_url: str):
-    """
-    Raw proxy of IPTV stream with proper headers for browser playback.
-    """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive',
-        'Referer': 'http://localhost:8000/',
-    }
-    
-    with requests.get(source_url, stream=True, timeout=25, headers=headers) as r:
-        r.raise_for_status()
-        # Pass through content-type from original source
-        content_type = r.headers.get('content-type', 'video/mp2t')
-        for chunk in r.iter_content(chunk_size=64 * 1024):
-            if not chunk:
-                break
-            yield chunk
-
 def proxy_audio_only(source_url: str):
-    """
-    Audio-only restream using ffmpeg:
-      -vn (no video), mono, 44.1kHz, 64 kbps MP3.
-    ffmpeg can transcode network inputs directly to mp3 on stdout. [web:38]
-    """
     cmd = [
         "ffmpeg",
         "-loglevel", "error",
@@ -215,18 +175,14 @@ def proxy_audio_only(source_url: str):
             if not data:
                 break
             yield data
-    except Exception as e:
-        logging.error("Error in audio stream: %s", e)
     finally:
         try:
             proc.terminate()
-            # Wait a bit for graceful termination
             time.sleep(0.5)
             if proc.poll() is None:
                 proc.kill()
-            proc.wait()
-        except Exception as e:
-            logging.error("Error terminating ffmpeg process: %s", e)
+        except:
+            pass
 
 # ============================================================
 # HTML TEMPLATES
@@ -237,68 +193,19 @@ HOME_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>IPTV Restream</title>
 <style>
-body{background:#000;color:#0f0;font-family:Arial,Helvetica,sans-serif;margin:0;padding:16px}
+body{background:#000;color:#0f0;font-family:Arial;margin:0;padding:16px}
 a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;border-radius:8px;display:inline-block}
 a:hover{background:#0f0;color:#000}
-h2{margin-top:4px}
-.category-group{margin-bottom:24px}
-.category-title{color:#0ff;font-size:18px;margin-bottom:12px;border-bottom:1px solid #0ff;padding-bottom:4px}
-.category-title::before{content:"📺 ";margin-right:8px}
 </style>
 </head>
 <body>
-<h2>📺 IPTV Restream</h2>
+<h2>📺 IPTV Restream (Raw m3u8 mode)</h2>
 <p>Select a category:</p>
 
-<div class="category-group">
-    <div class="category-title">All Channels</div>
-    <a href="/list/all">🌍 All Channels</a>
-</div>
+{% for key, url in playlists.items() %}
+<a href="/list/{{ key }}">{{ key|capitalize }}</a>
+{% endfor %}
 
-<div class="category-group">
-    <div class="category-title">Categories</div>
-    <a href="/list/news">📰 News</a>
-    <a href="/list/sports">⚽ Sports</a>
-    <a href="/list/entertainment">🎭 Entertainment</a>
-    <a href="/list/kids">🧒 Kids</a>
-    <a href="/list/movies">🎬 Movies</a>
-    <a href="/list/music">🎵 Music</a>
-    <a href="/list/documentary">📽️ Documentary</a>
-    <a href="/list/comedy">😂 Comedy</a>
-    <a href="/list/lifestyle">🏠 Lifestyle</a>
-    <a href="/list/business">💼 Business</a>
-    <a href="/list/travel">✈️ Travel</a>
-    <a href="/list/science">🔬 Science & Tech</a>
-    <a href="/list/educational">📚 Educational</a>
-    <a href="/list/religious">🙏 Religious</a>
-    <a href="/list/shopping">🛒 Shopping</a>
-    <a href="/list/regional">📍 Regional</a>
-</div>
-
-<div class="category-group">
-    <div class="category-title">Countries</div>
-    <a href="/list/india">🇮🇳 India</a>
-    <a href="/list/usa">🇺🇸 USA</a>
-    <a href="/list/uk">🇬🇧 UK</a>
-    <a href="/list/canada">🇨🇦 Canada</a>
-    <a href="/list/australia">🇦🇺 Australia</a>
-    <a href="/list/germany">🇩🇪 Germany</a>
-    <a href="/list/france">🇫🇷 France</a>
-</div>
-
-<div class="category-group">
-    <div class="category-title">Languages</div>
-    <a href="/list/english">🇬🇧 English</a>
-    <a href="/list/hindi">🇮🇳 Hindi</a>
-    <a href="/list/spanish">🇪🇸 Spanish</a>
-    <a href="/list/french">🇫🇷 French</a>
-    <a href="/list/german">🇩🇪 German</a>
-    <a href="/list/arabic">🇸🇦 Arabic</a>
-</div>
-
-<p style="margin-top:24px;opacity:.7;font-size:13px;border-top:1px solid #333;padding-top:12px">
-Using public iptv-org playlists. Channels may go offline or change URLs.
-</p>
 </body>
 </html>"""
 
@@ -308,42 +215,29 @@ LIST_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ group|capitalize }} Channels</title>
 <style>
-body{background:#000;color:#0f0;font-family:Arial,Helvetica,sans-serif;margin:0;padding:16px}
-a{color:#0f0}
+body{background:#000;color:#0f0;font-family:Arial;margin:0;padding:16px}
 .card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0;background:#111}
 .card img{width:42px;height:42px;object-fit:contain;background:#222;border-radius:6px}
-.btns a{border:1px solid #0f0;padding:6px 8px;border-radius:6px;margin-right:8px;display:inline-block;text-decoration:none}
-.btns a:hover{background:#0f0;color:#000}
-.meta{opacity:.8;font-size:12px}
-.channel-count{opacity:.7;font-size:14px;margin-bottom:16px}
-.empty-message{color:#f00;padding:20px;text-align:center;border:1px solid #f00;border-radius:8px}
+a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:10px}
+a.btn:hover{background:#0f0;color:#000}
 </style>
 </head>
 <body>
-<h3>Category: {{ group|capitalize }}</h3>
-<p><a href="/">← Back to Categories</a></p>
+<h3>{{ group|capitalize }} Channels</h3>
+<a href="/">← Back</a>
 
-{% if channels %}
-<div class="channel-count">{{ channels|length }} channels found</div>
 {% for ch in channels %}
 <div class="card">
-  <img src="{{ ch.logo or fallback }}" alt="logo" onerror="this.src='{{ fallback }}'">
+  <img src="{{ ch.logo or fallback }}" onerror="this.src='{{ fallback }}'">
   <div style="flex:1">
-    <div><strong>{{ loop.index0 }}.</strong> {{ ch.title }}</div>
-    <div class="meta">{{ ch.group }}{% if ch.tvg_id %} · {{ ch.tvg_id }}{% endif %}</div>
-    <div class="btns">
-      <a href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Watch Video</a>
-      <a href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio only</a>
+    <strong>{{ loop.index0 }}.</strong> {{ ch.title }}
+    <div>
+      <a class="btn" href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Watch</a>
+      <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio only</a>
     </div>
   </div>
 </div>
 {% endfor %}
-{% else %}
-<div class="empty-message">
-  No channels available for this category.<br>
-  The playlist might be temporarily unavailable or empty.
-</div>
-{% endif %}
 </body>
 </html>"""
 
@@ -351,59 +245,48 @@ WATCH_HTML = """<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Watch: {{ channel.title }}</title>
+<title>{{ channel.title }}</title>
 <style>
-body { margin: 0; padding: 0; background: #000; }
-.video-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-h2 { color: #0f0; text-align: center; margin-bottom: 20px; }
-video { width: 100%; height: auto; max-height: 70vh; border: 2px solid #0f0; }
-.back-btn { display: inline-block; margin: 20px 0; padding: 10px 20px; background: #0f0; color: #000; text-decoration: none; border-radius: 5px; }
-.back-btn:hover { background: #0c0; }
+body{margin:0;padding:0;background:#000;color:#0f0}
+video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10px}
 </style>
 </head>
 <body>
-<div class="video-container">
-    <h2>📺 {{ channel.title }}</h2>
-    <video id="videoPlayer" controls autoplay playsinline>
-        <source src="/play/{{ group }}/{{ idx }}" type="{{ mime_type }}">
-        Your browser does not support the video tag.
-    </video>
-    <div>
-        <a href="/list/{{ group }}" class="back-btn">← Back to Channel List</a>
-    </div>
-</div>
-<script>
-// Try to play video automatically
-document.getElementById('videoPlayer').addEventListener('loadeddata', function() {
-    this.play().catch(e => console.log('Autoplay prevented:', e));
-});
 
-// Handle stream errors
-document.getElementById('videoPlayer').addEventListener('error', function(e) {
-    console.error('Video error:', e);
-    alert('Error loading stream. The channel might be offline or not supported by your browser.');
+<h3 style="text-align:center">{{ channel.title }}</h3>
+
+<video id="vid" controls autoplay playsinline>
+    <source src="{{ channel.url }}" type="{{ mime_type }}">
+</video>
+
+<script>
+// Optional autoplay recovery
+document.getElementById("vid").addEventListener("error", () => {
+    alert("Video could not play. Stream may be offline.");
 });
 </script>
+
 </body>
-</html>"""
+</html>
+"""
 
 # ============================================================
-# Routes
+# ROUTES
 # ============================================================
 @app.route("/")
 def home():
-    return render_template_string(HOME_HTML)
+    return render_template_string(HOME_HTML, playlists=PLAYLISTS)
 
 @app.route("/list/<group>")
 def list_group(group):
     if group not in PLAYLISTS:
         abort(404)
-    try:
-        channels = get_channels(group)
-    except Exception as e:
-        logging.exception("Error loading channels for %s", group)
-        abort(502)
-    return render_template_string(LIST_HTML, group=group, channels=channels, fallback=LOGO_FALLBACK)
+    return render_template_string(
+        LIST_HTML,
+        group=group,
+        channels=get_channels(group),
+        fallback=LOGO_FALLBACK
+    )
 
 @app.route("/watch/<group>/<int:idx>")
 def watch_channel(group, idx):
@@ -412,61 +295,26 @@ def watch_channel(group, idx):
     channels = get_channels(group)
     if idx < 0 or idx >= len(channels):
         abort(404)
-    ch = channels[idx]
-    
-    # Determine MIME type based on URL
-    if ".m3u8" in ch["url"]:
-        mime_type = "application/vnd.apple.mpegurl"
-    elif ".mp4" in ch["url"] or ".m4v" in ch["url"]:
-        mime_type = "video/mp4"
-    elif ".webm" in ch["url"]:
-        mime_type = "video/webm"
-    else:
-        mime_type = "video/mp2t"  # Default for TS streams
-    
-    return render_template_string(WATCH_HTML, 
-                                 channel=ch, 
-                                 group=group, 
-                                 idx=idx, 
-                                 mime_type=mime_type)
 
-@app.route("/play/<group>/<int:idx>")
-def play_channel(group, idx):
-    if group not in PLAYLISTS:
-        abort(404)
-    channels = get_channels(group)
-    if idx < 0 or idx >= len(channels):
-        abort(404)
     ch = channels[idx]
 
-    def gen():
-        try:
-            for chunk in proxy_stream(ch["url"]):
-                yield chunk
-        except Exception as e:
-            logging.error("Error streaming video: %s", e)
-            yield b''
-
-    # Determine proper content type
+    # Browser raw playback detection
     if ".m3u8" in ch["url"]:
-        content_type = "application/vnd.apple.mpegurl"
-    elif ".mp4" in ch["url"] or ".m4v" in ch["url"]:
-        content_type = "video/mp4"
+        mime = "application/vnd.apple.mpegurl"
+    elif ".mp4" in ch["url"]:
+        mime = "video/mp4"
     elif ".webm" in ch["url"]:
-        content_type = "video/webm"
+        mime = "video/webm"
     else:
-        content_type = "video/mp2t"
-    
-    # Add CORS headers for browser compatibility
-    headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-    }
-    
-    return Response(stream_with_context(gen()), 
-                   mimetype=content_type,
-                   headers=headers)
+        mime = "video/mp2t"
+
+    return render_template_string(
+        WATCH_HTML,
+        channel=ch,
+        group=group,
+        idx=idx,
+        mime_type=mime
+    )
 
 @app.route("/play-audio/<group>/<int:idx>")
 def play_channel_audio(group, idx):
@@ -475,41 +323,23 @@ def play_channel_audio(group, idx):
     channels = get_channels(group)
     if idx < 0 or idx >= len(channels):
         abort(404)
+
     ch = channels[idx]
 
     def gen():
-        try:
-            for chunk in proxy_audio_only(ch["url"]):
-                yield chunk
-        except Exception as e:
-            logging.error("Error streaming audio: %s", e)
+        for chunk in proxy_audio_only(ch["url"]):
+            yield chunk
 
     headers = {
         "Content-Disposition": f'inline; filename="{group}_{idx}.mp3"',
         'Access-Control-Allow-Origin': '*',
     }
-    return Response(stream_with_context(gen()), 
-                   mimetype="audio/mpeg", 
-                   headers=headers)
+
+    return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
 
 # ============================================================
 # Entry
 # ============================================================
 if __name__ == "__main__":
-    print("=" * 60)
-    print("IPTV Restream Server")
-    print("=" * 60)
-    print(f"Available categories: {len(PLAYLISTS)}")
-    print("Main Categories: All, News, Sports, Entertainment, Kids, Movies, Music")
-    print("Countries: India, USA, UK, Canada, Australia, Germany, France")
-    print("Languages: English, Hindi, Spanish, French, German, Arabic")
-    print("=" * 60)
-    print("Starting server on http://0.0.0.0:8000")
-    print("=" * 60)
-    print("IMPORTANT NOTES:")
-    print("1. Some streams may not play directly in browsers due to format restrictions")
-    print("2. HLS (.m3u8) streams work best in modern browsers")
-    print("3. For TS streams, Chrome/Edge work better than Firefox")
-    print("=" * 60)
-
+    print("Running IPTV server (RAW m3u8 mode) on http://0.0.0.0:8000")
     app.run(host="0.0.0.0", port=8000, debug=False, threaded=True)
