@@ -169,33 +169,20 @@ def filter_by_quality(q):
     return results
 
 # ============================================================
-# FFMPEG STREAMING (Video & Audio)
+# AUDIO-ONLY STREAMING
 # ============================================================
-def proxy_stream(source_url: str, audio_only=False):
+def proxy_audio_only(source_url: str):
     cmd = [
         "ffmpeg",
         "-loglevel", "error",
-        "-re",                # read input at real-time pace
         "-i", source_url,
+        "-vn",
+        "-ac", "1",
+        "-ar", "44100",
+        "-b:a", "40k",
+        "-f", "mp3",
+        "pipe:1",
     ]
-
-    if audio_only:
-        cmd += [
-            "-vn",
-            "-ac", "1",
-            "-ar", "44100",
-            "-b:a", "40k",
-            "-f", "mp3",
-            "pipe:1",
-        ]
-    else:
-        cmd += [
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-f", "mpegts",
-            "pipe:1",
-        ]
-
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         while True:
@@ -213,7 +200,7 @@ def proxy_stream(source_url: str, audio_only=False):
             pass
 
 # ============================================================
-# HTML TEMPLATES
+# HTML TEMPLATES (unchanged)
 # ============================================================
 HOME_HTML = """<!doctype html>
 <html>
@@ -227,7 +214,7 @@ a:hover{background:#0f0;color:#000}
 </style>
 </head>
 <body>
-<h2>📺 IPTV Restream (Proxied via FFMPEG)</h2>
+<h2>📺 IPTV Restream (Raw m3u8 mode)</h2>
 <p>Select a category:</p>
 
 {% for key, url in playlists.items() %}
@@ -303,7 +290,7 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 <h3 style="text-align:center">{{ channel.title }}</h3>
 
 <video id="vid" controls autoplay playsinline>
-    <source src="{{ url }}" type="{{ mime_type }}">
+    <source src="{{ channel.url }}" type="{{ mime_type }}">
 </video>
 
 <script>
@@ -344,33 +331,21 @@ def watch_channel(group, idx):
         abort(404)
 
     ch = channels[idx]
-    # Use proxy route for video streaming
-    url = f"/stream-video/{group}/{idx}"
-    mime = "video/mp2t"
+    url = ch["url"]
+
+    if ".m3u8" in url:
+        mime = "application/vnd.apple.mpegurl"
+    elif ".mp4" in url:
+        mime = "video/mp4"
+    elif ".webm" in url:
+        mime = "video/webm"
+    else:
+        mime = "video/mp2t"
+
     return render_template_string(
         WATCH_HTML,
         channel=ch,
-        url=url,
         mime_type=mime
-    )
-
-@app.route("/stream-video/<group>/<int:idx>")
-def stream_video(group, idx):
-    channels = get_channels(group)
-    if idx < 0 or idx >= len(channels):
-        abort(404)
-
-    ch = channels[idx]
-
-    headers = {
-        "Content-Disposition": f'inline; filename="{group}_{idx}.ts"',
-        "Access-Control-Allow-Origin": "*",
-    }
-
-    return Response(
-        stream_with_context(proxy_stream(ch["url"], audio_only=False)),
-        mimetype="video/MP2T",
-        headers=headers
     )
 
 @app.route("/play-audio/<group>/<int:idx>")
@@ -381,20 +356,20 @@ def play_channel_audio(group, idx):
 
     ch = channels[idx]
 
+    def gen():
+        for chunk in proxy_audio_only(ch["url"]):
+            yield chunk
+
     headers = {
         "Content-Disposition": f'inline; filename="{group}_{idx}.mp3"',
         "Access-Control-Allow-Origin": "*",
     }
 
-    return Response(
-        stream_with_context(proxy_stream(ch["url"], audio_only=True)),
-        mimetype="audio/mpeg",
-        headers=headers
-    )
+    return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
 
 # ============================================================
 # Entry
 # ============================================================
 if __name__ == "__main__":
-    print("Running IPTV server (FFMPEG proxied mode) on http://0.0.0.0:8000")
+    print("Running IPTV server (RAW m3u8 mode) on http://0.0.0.0:8000")
     app.run(host="0.0.0.0", port=8000, debug=False, threaded=True)
