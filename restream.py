@@ -189,34 +189,63 @@ def proxy_audio_only(source_url: str):
 # ============================================================
 # 144p video proxy
 # ============================================================
-def proxy_144p(url):
+@app.route("/low/<group>/<int:idx>.m3u8")
+def low_proxy(group, idx):
+    if group not in PLAYLISTS:
+        abort(404)
+    channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
+    ch = channels[idx]
+    source_url = ch["url"]
+
+    # Use ffmpeg to transcode to 144p HLS
+    # full log is written to server stdout
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-i", source_url,
+        "-vf", "scale=256:144",           # 144p
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-b:v", "150k",
+        "-c:a", "aac",
+        "-b:a", "48k",
+        "-f", "hls",
+        "-hls_time", "4",
+        "-hls_list_size", "5",
+        "-hls_flags", "delete_segments",
+        "pipe:1"
+    ]
+    logging.info("[144p] Starting FFmpeg for %s", ch["title"])
+    logging.info("[144p] Command: %s", " ".join(ffmpeg_cmd))
+
     def generate():
-        process = subprocess.Popen(
-            [
-                "ffmpeg",
-                "-i", url,
-                "-vf", "scale=256:144",   # 144p resolution (16:9 safe)
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-b:v", "150k",            # bitrate for 144p
-                "-c:a", "aac",
-                "-b:a", "48k",
-                "-f", "mpegts",
-                "pipe:1"
-            ],
+        proc = subprocess.Popen(
+            ffmpeg_cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
+            bufsize=10**6
         )
         try:
-            for chunk in iter(lambda: process.stdout.read(1024), b""):
-                yield chunk
+            while True:
+                out = proc.stdout.read(1024)
+                if out:
+                    yield out
+                err = proc.stderr.readline()
+                if err:
+                    logging.info("[FFmpeg] %s", err.decode().strip())
+                if out == b"" and err == b"" and proc.poll() is not None:
+                    break
         finally:
-            process.kill()
+            proc.terminate()
+            time.sleep(0.5)
+            if proc.poll() is None:
+                proc.kill()
+            logging.info("[144p] FFmpeg terminated for %s", ch["title"])
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="video/mp2t"
-    )
+    headers = {"Access-Control-Allow-Origin": "*"}
+    return Response(stream_with_context(generate()), mimetype="application/vnd.apple.mpegurl", headers=headers)
+
 # ============================================================
 # HTML TEMPLATES
 # ============================================================
