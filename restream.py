@@ -296,9 +296,9 @@ input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;backg
   <div style="flex:1">
   <strong>{{ ch.title }}</strong>
   <div style="margin-top:6px">
-    <a class="btn" href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Watch</a>
-    <a class="btn" href="/watch-low/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Low 144p</a>
-    <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio</a>
+    <a class="btn" href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ </a>
+    <a class="btn" href="/watch-low/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Low</a>
+    <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 </a>
     <button class="k" onclick='addFav("{{ ch.title|replace('"','&#34;') }}","{{ ch.url }}","{{ ch.logo }}")'>⭐</button>
   </div>
 </div>
