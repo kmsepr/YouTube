@@ -264,7 +264,10 @@ input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;backg
 <div id="channelList" style="margin-top:12px;">
 {% for ch in channels %}
 <div class="card" data-url="{{ ch.url }}" data-title="{{ ch.title }}">
+  <div style="font-size:20px;width:40px;text-align:center;color:#0f0">{{ loop.index }}.</div>
+
   <img src="{{ ch.logo or fallback }}" onerror="this.src='{{ fallback }}'">
+
   <div style="flex:1">
     <strong>{{ ch.title }}</strong>
     <div style="margin-top:6px">
