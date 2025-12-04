@@ -24,14 +24,24 @@ LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 # ============================================================
 PLAYLISTS = {
     "all": "https://iptv-org.github.io/iptv/index.m3u",
+
+    # Country
     "india": "https://iptv-org.github.io/iptv/countries/in.m3u",
     "usa": "https://iptv-org.github.io/iptv/countries/us.m3u",
     "uk": "https://iptv-org.github.io/iptv/countries/uk.m3u",
+
+    # Categories
     "news": "https://iptv-org.github.io/iptv/categories/news.m3u",
     "sports": "https://iptv-org.github.io/iptv/categories/sports.m3u",
     "movies": "https://iptv-org.github.io/iptv/categories/movies.m3u",
+
+    # Languages
     "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",
     "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",
+
+    # ======================================================
+    # NEW QUALITY (AUTO-FILTERED) VIRTUAL CATEGORIES
+    # ======================================================
     "360p": None,
     "576p": None,
     "240p": None,
@@ -113,6 +123,7 @@ def parse_m3u(text: str):
 # Cache Loader
 # ============================================================
 def get_channels(name: str):
+    # handle virtual quality categories
     if name in ["360p", "576p", "240p", "160p"]:
         return filter_by_quality(name)
 
@@ -158,20 +169,33 @@ def filter_by_quality(q):
     return results
 
 # ============================================================
-# AUDIO-ONLY STREAMING
+# FFMPEG STREAMING (Video & Audio)
 # ============================================================
-def proxy_audio_only(source_url: str):
+def proxy_stream(source_url: str, audio_only=False):
     cmd = [
         "ffmpeg",
         "-loglevel", "error",
+        "-re",                # read input at real-time pace
         "-i", source_url,
-        "-vn",
-        "-ac", "1",
-        "-ar", "44100",
-        "-b:a", "40k",
-        "-f", "mp3",
-        "pipe:1",
     ]
+
+    if audio_only:
+        cmd += [
+            "-vn",
+            "-ac", "1",
+            "-ar", "44100",
+            "-b:a", "40k",
+            "-f", "mp3",
+            "pipe:1",
+        ]
+    else:
+        cmd += [
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-f", "mpegts",
+            "pipe:1",
+        ]
+
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         while True:
@@ -203,7 +227,7 @@ a:hover{background:#0f0;color:#000}
 </style>
 </head>
 <body>
-<h2>📺 IPTV Restream (Raw m3u8 mode)</h2>
+<h2>📺 IPTV Restream (Proxied via FFMPEG)</h2>
 <p>Select a category:</p>
 
 {% for key, url in playlists.items() %}
@@ -231,6 +255,7 @@ input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;bac
 <h3>{{ group|capitalize }} Channels</h3>
 <a href="/">← Back</a>
 
+<!-- 🔍 Search Bar -->
 <input type="text" id="search" class="search" placeholder="Search channels..." onkeyup="filterChannels()">
 
 <div id="channelList">
@@ -263,7 +288,7 @@ function filterChannels() {
 </html>
 """
 
-WATCH_HTML_HLS = """<!doctype html>
+WATCH_HTML = """<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -277,29 +302,13 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 
 <h3 style="text-align:center">{{ channel.title }}</h3>
 
-<video id="vid" controls autoplay playsinline></video>
+<video id="vid" controls autoplay playsinline>
+    <source src="{{ url }}" type="{{ mime_type }}">
+</video>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-const video = document.getElementById('vid');
-const url = "{{ channel.url }}";
-
-if (url.endsWith('.m3u8')) {
-    if (Hls.isSupported()) {
-        const hls = new Hls();
-        hls.loadSource(url);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-    } else {
-        video.src = url;
-        video.addEventListener('loadedmetadata', () => video.play());
-    }
-} else {
-    video.src = url;
-    video.addEventListener('loadedmetadata', () => video.play());
-}
-
-video.addEventListener('error', () => {
+// Optional autoplay recovery
+document.getElementById("vid").addEventListener("error", () => {
     alert("Video could not play. Stream may be offline.");
 });
 </script>
@@ -335,9 +344,33 @@ def watch_channel(group, idx):
         abort(404)
 
     ch = channels[idx]
+    # Use proxy route for video streaming
+    url = f"/stream-video/{group}/{idx}"
+    mime = "video/mp2t"
     return render_template_string(
-        WATCH_HTML_HLS,
-        channel=ch
+        WATCH_HTML,
+        channel=ch,
+        url=url,
+        mime_type=mime
+    )
+
+@app.route("/stream-video/<group>/<int:idx>")
+def stream_video(group, idx):
+    channels = get_channels(group)
+    if idx < 0 or idx >= len(channels):
+        abort(404)
+
+    ch = channels[idx]
+
+    headers = {
+        "Content-Disposition": f'inline; filename="{group}_{idx}.ts"',
+        "Access-Control-Allow-Origin": "*",
+    }
+
+    return Response(
+        stream_with_context(proxy_stream(ch["url"], audio_only=False)),
+        mimetype="video/MP2T",
+        headers=headers
     )
 
 @app.route("/play-audio/<group>/<int:idx>")
@@ -348,20 +381,20 @@ def play_channel_audio(group, idx):
 
     ch = channels[idx]
 
-    def gen():
-        for chunk in proxy_audio_only(ch["url"]):
-            yield chunk
-
     headers = {
         "Content-Disposition": f'inline; filename="{group}_{idx}.mp3"',
         "Access-Control-Allow-Origin": "*",
     }
 
-    return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
+    return Response(
+        stream_with_context(proxy_stream(ch["url"], audio_only=True)),
+        mimetype="audio/mpeg",
+        headers=headers
+    )
 
 # ============================================================
 # Entry
 # ============================================================
 if __name__ == "__main__":
-    print("Running IPTV server (RAW m3u8 mode) on http://0.0.0.0:8000")
+    print("Running IPTV server (FFMPEG proxied mode) on http://0.0.0.0:8000")
     app.run(host="0.0.0.0", port=8000, debug=False, threaded=True)
