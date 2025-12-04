@@ -2,7 +2,7 @@
 import os
 import time
 import logging
-import random   # ⭐ ADDED
+import random
 import requests
 import subprocess
 from flask import Flask, Response, render_template_string, abort, stream_with_context
@@ -17,11 +17,11 @@ logging.basicConfig(
 
 app = Flask(__name__)
 
-REFRESH_INTERVAL = 1800  # 30 minutes
+REFRESH_INTERVAL = 1800
 LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 
 # ============================================================
-# IPTV-ORG PLAYLISTS + QUALITY CATEGORIES
+# PLAYLISTS (QUALITY REMOVED)
 # ============================================================
 PLAYLISTS = {
     "all": "https://iptv-org.github.io/iptv/index.m3u",
@@ -39,19 +39,12 @@ PLAYLISTS = {
     # Languages
     "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",
     "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",
-
-    # Quality (virtual)
-    "360p": None,
-    "576p": None,
-    "240p": None,
-    "160p": None,
 }
 
-# Cache
 CACHE = {}
 
 # ============================================================
-# M3U Parsing
+# M3U PARSER
 # ============================================================
 def parse_extinf(line: str):
     if "," in line:
@@ -104,15 +97,13 @@ def parse_m3u(text: str):
                     break
                 j += 1
             if url:
-                channels.append(
-                    {
-                        "title": title or attrs.get("tvg-name") or "Unknown",
-                        "url": url,
-                        "logo": attrs.get("tvg-logo") or "",
-                        "group": attrs.get("group-title") or "",
-                        "tvg_id": attrs.get("tvg-id") or "",
-                    }
-                )
+                channels.append({
+                    "title": title or attrs.get("tvg-name") or "Unknown",
+                    "url": url,
+                    "logo": attrs.get("tvg-logo") or "",
+                    "group": attrs.get("group-title") or "",
+                    "tvg_id": attrs.get("tvg-id") or "",
+                })
             i = j + 1
         else:
             i += 1
@@ -122,10 +113,6 @@ def parse_m3u(text: str):
 # Cache Loader
 # ============================================================
 def get_channels(name: str):
-    # virtual quality categories
-    if name in ["360p", "576p", "240p", "160p"]:
-        return filter_by_quality(name)
-
     now = time.time()
     cached = CACHE.get(name)
     if cached and now - cached.get("time", 0) < REFRESH_INTERVAL:
@@ -141,46 +128,17 @@ def get_channels(name: str):
         logging.info("[%s] Loaded %d channels", name, len(channels))
         return channels
     except Exception as e:
-        logging.error("Failed to load playlist %s: %s", name, e)
+        logging.error("Load failed %s: %s", name, e)
         return []
 
 # ============================================================
-# QUALITY FILTER
-# ============================================================
-def filter_by_quality(q):
-    patterns = {
-        "360p": ["360", "360p", "/360/", "_360"],
-        "576p": ["576", "576p", "/576/", "_576"],
-        "240p": ["240", "240p", "/240/", "_240"],
-        "160p": ["160", "160p", "/160/", "_160"],
-    }
-
-    keys = patterns[q]
-    all_ch = get_channels("all")
-
-    results = []
-    for ch in all_ch:
-        u = ch["url"].lower()
-        if any(k in u for k in keys):
-            results.append(ch)
-
-    logging.info("Quality filter %s → %d channels", q, len(results))
-    return results
-
-# ============================================================
-# AUDIO-ONLY
+# Audio-only proxy
 # ============================================================
 def proxy_audio_only(source_url: str):
     cmd = [
-        "ffmpeg",
-        "-loglevel", "error",
-        "-i", source_url,
-        "-vn",
-        "-ac", "1",
-        "-ar", "44100",
-        "-b:a", "40k",
-        "-f", "mp3",
-        "pipe:1",
+        "ffmpeg", "-loglevel", "error", "-i", source_url,
+        "-vn", "-ac", "1", "-ar", "44100", "-b:a", "40k",
+        "-f", "mp3", "pipe:1",
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
@@ -199,7 +157,7 @@ def proxy_audio_only(source_url: str):
             pass
 
 # ============================================================
-# HTML TEMPLATES
+# HTML — HOME + FAVOURITES
 # ============================================================
 HOME_HTML = """<!doctype html>
 <html>
@@ -207,58 +165,61 @@ HOME_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>IPTV Restream</title>
 <style>
-body{background:#000;color:#0f0;font-family:Arial;margin:0;padding:16px}
-a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;border-radius:8px;display:inline-block}
+body{background:#000;color:#0f0;font-family:Arial;padding:16px}
+a{color:#0f0;text-decoration:none;border:1px solid #0f0;padding:10px;margin:8px;
+  border-radius:8px;display:inline-block}
 a:hover{background:#0f0;color:#000}
 </style>
 </head>
 <body>
-<h2>📺 IPTV Restream (Raw m3u8 mode)</h2>
+<h2>📺 IPTV Restream</h2>
 
-<!-- ⭐ RANDOM BUTTON -->
 <a href="/random" style="background:#0f0;color:#000">🎲 Random Channel</a>
+<a href="/favourites" style="border-color:yellow;color:yellow">⭐ Favourites</a>
 
 <p>Select a category:</p>
-
 {% for key, url in playlists.items() %}
 <a href="/list/{{ key }}">{{ key|capitalize }}</a>
 {% endfor %}
-
 </body>
 </html>"""
 
+# ============================================================
+# LIST PAGE WITH ADD FAV BUTTON
+# ============================================================
 LIST_HTML = """<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ group|capitalize }} Channels</title>
 <style>
-body{background:#000;color:#0f0;font-family:Arial;margin:0;padding:16px}
-.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;padding:8px;margin:8px 0;background:#111}
-.card img{width:42px;height:42px;object-fit:contain;background:#222;border-radius:6px}
-a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:10px}
+body{background:#000;color:#0f0;font-family:Arial;padding:16px}
+.card{display:flex;align-items:center;gap:10px;border:1px solid #0f0;border-radius:8px;
+      padding:8px;margin:8px 0;background:#111}
+.card img{width:42px;height:42px;background:#222;border-radius:6px}
+a.btn{border:1px solid #0f0;color:#0f0;padding:6px 8px;border-radius:6px;text-decoration:none;margin-right:8px}
 a.btn:hover{background:#0f0;color:#000}
-input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;background:#111;color:#0f0;font-size:16px;margin-bottom:12px}
+button{padding:6px 8px;border-radius:6px;border:1px solid yellow;color:yellow;background:#222}
+input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;background:#111;color:#0f0;margin-bottom:12px}
 </style>
 </head>
 <body>
 <h3>{{ group|capitalize }} Channels</h3>
 <a href="/">← Back</a>
-
-<!-- ⭐ RANDOM BUTTON FOR CATEGORY -->
 <a class="btn" href="/random/{{ group }}" style="background:#0f0;color:#000">🎲 Random</a>
 
-<input type="text" id="search" class="search" placeholder="Search channels..." onkeyup="filterChannels()">
+<input class="search" id="search" placeholder="Search..." onkeyup="filterChannels()">
 
 <div id="channelList">
 {% for ch in channels %}
 <div class="card">
   <img src="{{ ch.logo or fallback }}" onerror="this.src='{{ fallback }}'">
   <div style="flex:1">
-    <strong>{{ loop.index0 }}.</strong> {{ ch.title }}
+    <strong>{{ ch.title }}</strong>
     <div>
       <a class="btn" href="/watch/{{ group }}/{{ loop.index0 }}" target="_blank">▶ Watch</a>
-      <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio only</a>
+      <a class="btn" href="/play-audio/{{ group }}/{{ loop.index0 }}" target="_blank">🎧 Audio</a>
+      <button onclick='addFav("{{ ch.title }}","{{ ch.url }}","{{ ch.logo }}")'>⭐</button>
     </div>
   </div>
 </div>
@@ -266,44 +227,93 @@ input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;bac
 </div>
 
 <script>
-function filterChannels() {
-    let input = document.getElementById('search').value.toLowerCase();
-    let cards = document.querySelectorAll('.card');
-    cards.forEach(card => {
-        let txt = card.innerText.toLowerCase();
-        card.style.display = txt.includes(input) ? '' : 'none';
-    });
+function filterChannels(){
+  let s=document.getElementById('search').value.toLowerCase();
+  document.querySelectorAll('.card').forEach(c=>{
+    c.style.display=c.innerText.toLowerCase().includes(s)?'':'none';
+  });
 }
+
+function addFav(title,url,logo){
+  let f=JSON.parse(localStorage.getItem("favs")||"[]");
+  f.push({title:title,url:url,logo:logo});
+  localStorage.setItem("favs",JSON.stringify(f));
+  alert("Added to favourites");
+}
+</script>
+</body>
+</html>
+"""
+
+# ============================================================
+# FAVOURITES PAGE
+# ============================================================
+FAV_HTML = """<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Favourites</title>
+<style>
+body{background:#000;color:#0f0;font-family:Arial;padding:16px}
+.card{border:1px solid yellow;padding:10px;margin:8px 0;border-radius:8px;background:#111}
+.card img{width:40px;height:40px;margin-right:8px}
+a{color:yellow}
+button{background:#222;color:red;border:1px solid red;padding:6px;border-radius:6px}
+</style>
+</head>
+<body>
+<h2>⭐ Favourites</h2>
+<a href="/">← Back</a>
+
+<div id="favs"></div>
+
+<script>
+function loadFavs(){
+  let f=JSON.parse(localStorage.getItem("favs")||"[]");
+  let html="";
+  f.forEach((x,i)=>{
+    html+=`
+      <div class="card">
+        <img src="${x.logo||''}">
+        <strong>${x.title}</strong><br>
+        <a href="${x.url}" target="_blank">▶ Play</a>
+        <button onclick="del(${i})">Delete</button>
+      </div>
+    `;
+  });
+  document.getElementById("favs").innerHTML=html;
+}
+function del(i){
+  let f=JSON.parse(localStorage.getItem("favs")||"[]");
+  f.splice(i,1);
+  localStorage.setItem("favs",JSON.stringify(f));
+  loadFavs();
+}
+loadFavs();
 </script>
 
 </body>
 </html>
 """
 
+# ============================================================
+# WATCH HTML SAME AS BEFORE
+# ============================================================
 WATCH_HTML = """<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ channel.title }}</title>
 <style>
-body{margin:0;padding:0;background:#000;color:#0f0}
+body{background:#000;color:#0f0;margin:0}
 video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10px}
 </style>
 </head>
 <body>
-
 <h3 style="text-align:center">{{ channel.title }}</h3>
-
 <video id="vid" controls autoplay playsinline>
-    <source src="{{ channel.url }}" type="{{ mime_type }}">
+  <source src="{{ channel.url }}" type="{{ mime_type }}">
 </video>
-
-<script>
-document.getElementById("vid").addEventListener("error", () => {
-    alert("Video could not play. Stream may be offline.");
-});
-</script>
-
 </body>
 </html>
 """
@@ -316,108 +326,50 @@ document.getElementById("vid").addEventListener("error", () => {
 def home():
     return render_template_string(HOME_HTML, playlists=PLAYLISTS)
 
+@app.route("/favourites")
+def favourites():
+    return render_template_string(FAV_HTML)
+
 @app.route("/list/<group>")
 def list_group(group):
     if group not in PLAYLISTS:
         abort(404)
-
     channels = get_channels(group)
-    return render_template_string(
-        LIST_HTML,
-        group=group,
-        channels=channels,
-        fallback=LOGO_FALLBACK
-    )
+    return render_template_string(LIST_HTML, group=group, channels=channels, fallback=LOGO_FALLBACK)
 
-# ⭐ RANDOM — GLOBAL
 @app.route("/random")
 def random_global():
     channels = get_channels("all")
-    if not channels:
-        abort(404)
-
-    idx = random.randint(0, len(channels) - 1)
-    ch = channels[idx]
-
+    ch = random.choice(channels)
     url = ch["url"]
-    if ".m3u8" in url:
-        mime = "application/vnd.apple.mpegurl"
-    elif ".mp4" in url:
-        mime = "video/mp4"
-    elif ".webm" in url:
-        mime = "video/webm"
-    else:
-        mime = "video/mp2t"
-
+    mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
     return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
 
-# ⭐ RANDOM — PER CATEGORY
 @app.route("/random/<group>")
 def random_category(group):
-    if group not in PLAYLISTS:
-        abort(404)
-
     channels = get_channels(group)
-    if not channels:
-        abort(404)
-
-    idx = random.randint(0, len(channels) - 1)
-    ch = channels[idx]
-
+    ch = random.choice(channels)
     url = ch["url"]
-    if ".m3u8" in url:
-        mime = "application/vnd.apple.mpegurl"
-    elif ".mp4" in url:
-        mime = "video/mp4"
-    elif ".webm" in url:
-        mime = "video/webm"
-    else:
-        mime = "video/mp2t"
-
+    mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
     return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
 
 @app.route("/watch/<group>/<int:idx>")
 def watch_channel(group, idx):
     channels = get_channels(group)
-    if idx < 0 or idx >= len(channels):
-        abort(404)
-
     ch = channels[idx]
     url = ch["url"]
-
-    if ".m3u8" in url:
-        mime = "application/vnd.apple.mpegurl"
-    elif ".mp4" in url:
-        mime = "video/mp4"
-    elif ".webm" in url:
-        mime = "video/webm"
-    else:
-        mime = "video/mp2t"
-
+    mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
     return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
 
 @app.route("/play-audio/<group>/<int:idx>")
 def play_channel_audio(group, idx):
-    channels = get_channels(group)
-    if idx < 0 or idx >= len(channels):
-        abort(404)
-
-    ch = channels[idx]
-
+    ch = get_channels(group)[idx]
     def gen():
         for chunk in proxy_audio_only(ch["url"]):
             yield chunk
-
-    headers = {
-        "Content-Disposition": f'inline; filename="{group}_{idx}.mp3"',
-        "Access-Control-Allow-Origin": "*",
-    }
-
+    headers = {"Access-Control-Allow-Origin": "*"}
     return Response(stream_with_context(gen()), mimetype="audio/mpeg", headers=headers)
 
-# ============================================================
-# Entry
-# ============================================================
 if __name__ == "__main__":
-    print("Running IPTV server (RAW m3u8 mode) on http://0.0.0.0:8000")
+    print("Running IPTV Restream on http://0.0.0.0:8000")
     app.run(host="0.0.0.0", port=8000, debug=False, threaded=True)
