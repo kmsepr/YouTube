@@ -2,6 +2,7 @@
 import os
 import time
 import logging
+import random   # ⭐ ADDED
 import requests
 import subprocess
 from flask import Flask, Response, render_template_string, abort, stream_with_context
@@ -39,9 +40,7 @@ PLAYLISTS = {
     "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",
     "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",
 
-    # ======================================================
-    # NEW QUALITY (AUTO-FILTERED) VIRTUAL CATEGORIES
-    # ======================================================
+    # Quality (virtual)
     "360p": None,
     "576p": None,
     "240p": None,
@@ -123,7 +122,7 @@ def parse_m3u(text: str):
 # Cache Loader
 # ============================================================
 def get_channels(name: str):
-    # handle virtual quality categories
+    # virtual quality categories
     if name in ["360p", "576p", "240p", "160p"]:
         return filter_by_quality(name)
 
@@ -146,7 +145,7 @@ def get_channels(name: str):
         return []
 
 # ============================================================
-# QUALITY CATEGORY FILTER
+# QUALITY FILTER
 # ============================================================
 def filter_by_quality(q):
     patterns = {
@@ -169,7 +168,7 @@ def filter_by_quality(q):
     return results
 
 # ============================================================
-# AUDIO-ONLY STREAMING
+# AUDIO-ONLY
 # ============================================================
 def proxy_audio_only(source_url: str):
     cmd = [
@@ -200,7 +199,7 @@ def proxy_audio_only(source_url: str):
             pass
 
 # ============================================================
-# HTML TEMPLATES (unchanged)
+# HTML TEMPLATES
 # ============================================================
 HOME_HTML = """<!doctype html>
 <html>
@@ -215,6 +214,10 @@ a:hover{background:#0f0;color:#000}
 </head>
 <body>
 <h2>📺 IPTV Restream (Raw m3u8 mode)</h2>
+
+<!-- ⭐ RANDOM BUTTON -->
+<a href="/random" style="background:#0f0;color:#000">🎲 Random Channel</a>
+
 <p>Select a category:</p>
 
 {% for key, url in playlists.items() %}
@@ -242,7 +245,9 @@ input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;bac
 <h3>{{ group|capitalize }} Channels</h3>
 <a href="/">← Back</a>
 
-<!-- 🔍 Search Bar -->
+<!-- ⭐ RANDOM BUTTON FOR CATEGORY -->
+<a class="btn" href="/random/{{ group }}" style="background:#0f0;color:#000">🎲 Random</a>
+
 <input type="text" id="search" class="search" placeholder="Search channels..." onkeyup="filterChannels()">
 
 <div id="channelList">
@@ -294,7 +299,6 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 </video>
 
 <script>
-// Optional autoplay recovery
 document.getElementById("vid").addEventListener("error", () => {
     alert("Video could not play. Stream may be offline.");
 });
@@ -307,6 +311,7 @@ document.getElementById("vid").addEventListener("error", () => {
 # ============================================================
 # ROUTES
 # ============================================================
+
 @app.route("/")
 def home():
     return render_template_string(HOME_HTML, playlists=PLAYLISTS)
@@ -323,6 +328,53 @@ def list_group(group):
         channels=channels,
         fallback=LOGO_FALLBACK
     )
+
+# ⭐ RANDOM — GLOBAL
+@app.route("/random")
+def random_global():
+    channels = get_channels("all")
+    if not channels:
+        abort(404)
+
+    idx = random.randint(0, len(channels) - 1)
+    ch = channels[idx]
+
+    url = ch["url"]
+    if ".m3u8" in url:
+        mime = "application/vnd.apple.mpegurl"
+    elif ".mp4" in url:
+        mime = "video/mp4"
+    elif ".webm" in url:
+        mime = "video/webm"
+    else:
+        mime = "video/mp2t"
+
+    return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
+
+# ⭐ RANDOM — PER CATEGORY
+@app.route("/random/<group>")
+def random_category(group):
+    if group not in PLAYLISTS:
+        abort(404)
+
+    channels = get_channels(group)
+    if not channels:
+        abort(404)
+
+    idx = random.randint(0, len(channels) - 1)
+    ch = channels[idx]
+
+    url = ch["url"]
+    if ".m3u8" in url:
+        mime = "application/vnd.apple.mpegurl"
+    elif ".mp4" in url:
+        mime = "video/mp4"
+    elif ".webm" in url:
+        mime = "video/webm"
+    else:
+        mime = "video/mp2t"
+
+    return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
 
 @app.route("/watch/<group>/<int:idx>")
 def watch_channel(group, idx):
@@ -342,11 +394,7 @@ def watch_channel(group, idx):
     else:
         mime = "video/mp2t"
 
-    return render_template_string(
-        WATCH_HTML,
-        channel=ch,
-        mime_type=mime
-    )
+    return render_template_string(WATCH_HTML, channel=ch, mime_type=mime)
 
 @app.route("/play-audio/<group>/<int:idx>")
 def play_channel_audio(group, idx):
