@@ -21,24 +21,50 @@ REFRESH_INTERVAL = 1800
 LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 
 # ============================================================
-# PLAYLISTS (QUALITY REMOVED)
+# PLAYLISTS (QUALITY REMOVED) - UPDATED WITH MANY LANGUAGES
 # ============================================================
 PLAYLISTS = {
     "all": "https://iptv-org.github.io/iptv/index.m3u",
 
-    # Country
+    # Countries
     "india": "https://iptv-org.github.io/iptv/countries/in.m3u",
     "usa": "https://iptv-org.github.io/iptv/countries/us.m3u",
     "uk": "https://iptv-org.github.io/iptv/countries/uk.m3u",
+    "uae": "https://iptv-org.github.io/iptv/countries/ae.m3u",
+    "saudi": "https://iptv-org.github.io/iptv/countries/sa.m3u",
+    "pakistan": "https://iptv-org.github.io/iptv/countries/pk.m3u",
 
     # Categories
     "news": "https://iptv-org.github.io/iptv/categories/news.m3u",
     "sports": "https://iptv-org.github.io/iptv/categories/sports.m3u",
     "movies": "https://iptv-org.github.io/iptv/categories/movies.m3u",
+    "music": "https://iptv-org.github.io/iptv/categories/music.m3u",
+    "kids": "https://iptv-org.github.io/iptv/categories/kids.m3u",
+    "entertainment": "https://iptv-org.github.io/iptv/categories/entertainment.m3u",
 
-    # Languages
-    "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",
-    "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",
+    # Languages (extended list)
+    "english":   "https://iptv-org.github.io/iptv/languages/eng.m3u",
+    "hindi":     "https://iptv-org.github.io/iptv/languages/hin.m3u",
+    "tamil":     "https://iptv-org.github.io/iptv/languages/tam.m3u",
+    "telugu":    "https://iptv-org.github.io/iptv/languages/tel.m3u",
+    "malayalam": "https://iptv-org.github.io/iptv/languages/mal.m3u",
+    "kannada":   "https://iptv-org.github.io/iptv/languages/kan.m3u",
+    "marathi":   "https://iptv-org.github.io/iptv/languages/mar.m3u",
+    "gujarati":  "https://iptv-org.github.io/iptv/languages/guj.m3u",
+    "bengali":   "https://iptv-org.github.io/iptv/languages/ben.m3u",
+    "punjabi":   "https://iptv-org.github.io/iptv/languages/pan.m3u",
+
+    # International languages
+    "arabic":  "https://iptv-org.github.io/iptv/languages/ara.m3u",
+    "urdu":    "https://iptv-org.github.io/iptv/languages/urd.m3u",
+    "french":  "https://iptv-org.github.io/iptv/languages/fra.m3u",
+    "spanish": "https://iptv-org.github.io/iptv/languages/spa.m3u",
+    "german":  "https://iptv-org.github.io/iptv/languages/deu.m3u",
+    "turkish": "https://iptv-org.github.io/iptv/languages/tur.m3u",
+    "russian": "https://iptv-org.github.io/iptv/languages/rus.m3u",
+    "chinese": "https://iptv-org.github.io/iptv/languages/zho.m3u",
+    "japanese":"https://iptv-org.github.io/iptv/languages/jpn.m3u",
+    "korean":  "https://iptv-org.github.io/iptv/languages/kor.m3u",
 }
 
 CACHE = {}
