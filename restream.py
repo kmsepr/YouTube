@@ -24,24 +24,14 @@ LOGO_FALLBACK = "https://iptv-org.github.io/assets/logo.png"
 # ============================================================
 PLAYLISTS = {
     "all": "https://iptv-org.github.io/iptv/index.m3u",
-
-    # Country
     "india": "https://iptv-org.github.io/iptv/countries/in.m3u",
     "usa": "https://iptv-org.github.io/iptv/countries/us.m3u",
     "uk": "https://iptv-org.github.io/iptv/countries/uk.m3u",
-
-    # Categories
     "news": "https://iptv-org.github.io/iptv/categories/news.m3u",
     "sports": "https://iptv-org.github.io/iptv/categories/sports.m3u",
     "movies": "https://iptv-org.github.io/iptv/categories/movies.m3u",
-
-    # Languages
     "english": "https://iptv-org.github.io/iptv/languages/eng.m3u",
     "hindi": "https://iptv-org.github.io/iptv/languages/hin.m3u",
-
-    # ======================================================
-    # NEW QUALITY (AUTO-FILTERED) VIRTUAL CATEGORIES
-    # ======================================================
     "360p": None,
     "576p": None,
     "240p": None,
@@ -123,7 +113,6 @@ def parse_m3u(text: str):
 # Cache Loader
 # ============================================================
 def get_channels(name: str):
-    # handle virtual quality categories
     if name in ["360p", "576p", "240p", "160p"]:
         return filter_by_quality(name)
 
@@ -200,7 +189,7 @@ def proxy_audio_only(source_url: str):
             pass
 
 # ============================================================
-# HTML TEMPLATES (unchanged)
+# HTML TEMPLATES
 # ============================================================
 HOME_HTML = """<!doctype html>
 <html>
@@ -242,7 +231,6 @@ input.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0f0;bac
 <h3>{{ group|capitalize }} Channels</h3>
 <a href="/">← Back</a>
 
-<!-- 🔍 Search Bar -->
 <input type="text" id="search" class="search" placeholder="Search channels..." onkeyup="filterChannels()">
 
 <div id="channelList">
@@ -275,7 +263,7 @@ function filterChannels() {
 </html>
 """
 
-WATCH_HTML = """<!doctype html>
+WATCH_HTML_HLS = """<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -289,13 +277,29 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 
 <h3 style="text-align:center">{{ channel.title }}</h3>
 
-<video id="vid" controls autoplay playsinline>
-    <source src="{{ channel.url }}" type="{{ mime_type }}">
-</video>
+<video id="vid" controls autoplay playsinline></video>
 
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-// Optional autoplay recovery
-document.getElementById("vid").addEventListener("error", () => {
+const video = document.getElementById('vid');
+const url = "{{ channel.url }}";
+
+if (url.endsWith('.m3u8')) {
+    if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+    } else {
+        video.src = url;
+        video.addEventListener('loadedmetadata', () => video.play());
+    }
+} else {
+    video.src = url;
+    video.addEventListener('loadedmetadata', () => video.play());
+}
+
+video.addEventListener('error', () => {
     alert("Video could not play. Stream may be offline.");
 });
 </script>
@@ -331,21 +335,9 @@ def watch_channel(group, idx):
         abort(404)
 
     ch = channels[idx]
-    url = ch["url"]
-
-    if ".m3u8" in url:
-        mime = "application/vnd.apple.mpegurl"
-    elif ".mp4" in url:
-        mime = "video/mp4"
-    elif ".webm" in url:
-        mime = "video/webm"
-    else:
-        mime = "video/mp2t"
-
     return render_template_string(
-        WATCH_HTML,
-        channel=ch,
-        mime_type=mime
+        WATCH_HTML_HLS,
+        channel=ch
     )
 
 @app.route("/play-audio/<group>/<int:idx>")
