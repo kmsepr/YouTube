@@ -412,7 +412,9 @@ function loadFavs(){
       <div style="flex:1">
         <strong>${c.title}</strong>
         <div style="margin-top:6px">
-          <a class="btn" href="/watch/fav/${i}" target="_blank">▶ Watch</a>
+          <a class="btn"
+   href="/watch-direct?title=${encodeURIComponent(c.title)}&url=${encodeURIComponent(c.url)}&logo=${encodeURIComponent(c.logo)}"
+   target="_blank">▶ Watch</a>
           <a class="btn" href="/play-audio/fav/${i}" target="_blank">🎧 Audio</a>
         </div>
       </div>
@@ -547,6 +549,25 @@ def play_audio_direct():
         abort(404)
     return Response(stream_with_context(proxy_audio_only(u)),
                     mimetype="audio/mpeg")
+
+@app.route("/watch-direct")
+def watch_direct():
+    title = request.args.get("title", "Channel")
+    url = request.args.get("url")
+    logo = request.args.get("logo", "")
+
+    if not url:
+        return "Invalid URL", 400
+
+    mime = "application/vnd.apple.mpegurl" if ".m3u8" in url else "video/mp4"
+
+    channel = {
+        "title": title,
+        "url": url,
+        "logo": logo
+    }
+
+    return render_template_string(WATCH_HTML, channel=channel, mime_type=mime)
 
 # ============================================================
 # Entry
