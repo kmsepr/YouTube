@@ -400,34 +400,25 @@ WATCH_HTML = """<!doctype html>
 <style>
 body{background:#000;color:#0f0;margin:0;font-family:Arial}
 video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10px}
-.btn{
+.btn-reload{
     display:inline-block;
     padding:8px 14px;
     border:1px solid #0f0;
     color:#0f0;
     border-radius:6px;
     text-decoration:none;
-    margin:10px 6px;
+    margin:10px;
     cursor:pointer;
 }
-.btn:hover{background:#0f0;color:#000}
+.btn-reload:hover{background:#0f0;color:#000}
 </style>
 </head>
 <body>
-
 <h3 style="text-align:center">{{ channel.title }}</h3>
 
-<!-- ⭐ Buttons Panel -->
+<!-- ⭐ Reload Button -->
 <div style="text-align:center;margin-top:5px;">
-
-  <!-- Reload Button -->
-  <button class="btn" onclick="reloadVideo()">🔄 Reload</button>
-
-  <!-- Add to Favourites -->
-  <button class="btn" onclick='addFav("{{ channel.title|replace("\"","\\\"") }}", "{{ channel.url }}", "{{ channel.logo }}")'>
-    ⭐ Add to Favourites
-  </button>
-
+  <button class="btn-reload" onclick="reloadVideo()">🔄 Reload</button>
 </div>
 
 <video id="vid" controls autoplay playsinline>
@@ -435,31 +426,17 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 </video>
 
 <script>
-/* Reload Stream */
 function reloadVideo(){
     const v = document.getElementById("vid");
-    let src = v.querySelector("source").src;
+    const src = v.querySelector("source").src;
 
-    // Force refresh by adding timestamp
-    src = src.split("?")[0] + "?t=" + Date.now();
+    // Force reload by adding a timestamp
+    const newSrc = src.split("?")[0] + "?t=" + Date.now();
 
     v.pause();
-    v.querySelector("source").src = src;
+    v.querySelector("source").src = newSrc;
     v.load();
     v.play();
-}
-
-/* Add to favourites (same system as list & search pages) */
-function addFav(title, url, logo){
-    let favs = JSON.parse(localStorage.getItem("favs") || "[]");
-
-    if (!favs.find(x => x.url === url)) {
-        favs.push({title:title, url:url, logo:logo});
-        localStorage.setItem("favs", JSON.stringify(favs));
-        alert("Added to favourites ⭐");
-    } else {
-        alert("Already in favourites");
-    }
 }
 </script>
 
