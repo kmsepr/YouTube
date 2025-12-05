@@ -416,9 +416,13 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 <body>
 <h3 style="text-align:center">{{ channel.title }}</h3>
 
-<!-- ⭐ Reload Button -->
+<<!-- ⭐ Reload + Favourite Buttons -->
 <div style="text-align:center;margin-top:5px;">
   <button class="btn-reload" onclick="reloadVideo()">🔄 Reload</button>
+  <button class="btn-reload" onclick="addFavWatch()"
+          style="border-color:yellow;color:yellow;margin-left:8px;">
+    ⭐ Favourite
+  </button>
 </div>
 
 <video id="vid" controls autoplay playsinline>
@@ -426,17 +430,36 @@ video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10
 </video>
 
 <script>
+const currentChannel = {
+  title: "{{ channel.title|replace('"','&#34;') }}",
+  url: "{{ channel.url }}",
+  logo: "{{ channel.logo or '' }}"
+};
+
 function reloadVideo(){
     const v = document.getElementById("vid");
     const src = v.querySelector("source").src;
-
-    // Force reload by adding a timestamp
     const newSrc = src.split("?")[0] + "?t=" + Date.now();
-
     v.pause();
     v.querySelector("source").src = newSrc;
     v.load();
     v.play();
+}
+
+// same favourites schema used elsewhere
+function addFav(title, url, logo){
+  let f = JSON.parse(localStorage.getItem('favs') || '[]');
+  if (!f.find(x => x.url === url)) {
+    f.push({title:title, url:url, logo:logo});
+    localStorage.setItem('favs', JSON.stringify(f));
+    alert('Added to favourites');
+  } else {
+    alert('Already in favourites');
+  }
+}
+
+function addFavWatch(){
+  addFav(currentChannel.title, currentChannel.url, currentChannel.logo);
 }
 </script>
 
