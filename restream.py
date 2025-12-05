@@ -398,15 +398,48 @@ WATCH_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ channel.title }}</title>
 <style>
-body{background:#000;color:#0f0;margin:0}
+body{background:#000;color:#0f0;margin:0;font-family:Arial}
 video{width:100%;height:auto;max-height:90vh;border:2px solid #0f0;margin-top:10px}
+.btn-reload{
+    display:inline-block;
+    padding:8px 14px;
+    border:1px solid #0f0;
+    color:#0f0;
+    border-radius:6px;
+    text-decoration:none;
+    margin:10px;
+    cursor:pointer;
+}
+.btn-reload:hover{background:#0f0;color:#000}
 </style>
 </head>
 <body>
 <h3 style="text-align:center">{{ channel.title }}</h3>
+
+<!-- ⭐ Reload Button -->
+<div style="text-align:center;margin-top:5px;">
+  <button class="btn-reload" onclick="reloadVideo()">🔄 Reload</button>
+</div>
+
 <video id="vid" controls autoplay playsinline>
   <source src="{{ channel.url }}" type="{{ mime_type }}">
 </video>
+
+<script>
+function reloadVideo(){
+    const v = document.getElementById("vid");
+    const src = v.querySelector("source").src;
+
+    // Force reload by adding a timestamp
+    const newSrc = src.split("?")[0] + "?t=" + Date.now();
+
+    v.pause();
+    v.querySelector("source").src = newSrc;
+    v.load();
+    v.play();
+}
+</script>
+
 </body>
 </html>
 """
