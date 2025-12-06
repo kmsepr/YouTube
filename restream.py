@@ -247,20 +247,6 @@ input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;backg
   <button class="k" onclick="clearSearch()">✖</button>
 </div>
 
-<!-- optional small keypad for HMD-style input (on-screen) -->
-<div class="keypad" role="application">
-  <button class="kbtn" onclick="updateSearch('1')">1</button>
-  <button class="kbtn" onclick="updateSearch('2')">2</button>
-  <button class="kbtn" onclick="updateSearch('3')">3</button>
-  <button class="kbtn" onclick="updateSearch('4')">4</button>
-  <button class="kbtn" onclick="updateSearch('5')">5</button>
-  <button class="kbtn" onclick="updateSearch('6')">6</button>
-  <button class="kbtn" onclick="updateSearch('7')">7</button>
-  <button class="kbtn" onclick="updateSearch('8')">8</button>
-  <button class="kbtn" onclick="updateSearch('9')">9</button>
-  <button class="kbtn" onclick="updateSearch('0')">0</button>
-</div>
-
 <div id="channelList" style="margin-top:12px;">
 {% for ch in channels %}
 <div class="card" data-url="{{ ch.url }}" data-title="{{ ch.title }}">
