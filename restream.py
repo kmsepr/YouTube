@@ -247,22 +247,24 @@ input#search{width:60%;padding:8px;border-radius:6px;border:1px solid #0f0;backg
   <button class="k" onclick="clearSearch()">✖</button>
 </div>
 
-<div style="margin-top:20px; text-align:center;">
-  {% if prev_page %}
-    <a class="btn" href="/list/{{ group }}?page={{ prev_page }}">⬅ Previous</a>
-  {% endif %}
-
-  <span style="margin:0 15px;">Page {{ page }}</span>
-
-  {% if next_page %}
-    <a class="btn" href="/list/{{ group }}?page={{ next_page }}">Next ➡</a>
-  {% endif %}
+<!-- optional small keypad for HMD-style input (on-screen) -->
+<div class="keypad" role="application">
+  <button class="kbtn" onclick="updateSearch('1')">1</button>
+  <button class="kbtn" onclick="updateSearch('2')">2</button>
+  <button class="kbtn" onclick="updateSearch('3')">3</button>
+  <button class="kbtn" onclick="updateSearch('4')">4</button>
+  <button class="kbtn" onclick="updateSearch('5')">5</button>
+  <button class="kbtn" onclick="updateSearch('6')">6</button>
+  <button class="kbtn" onclick="updateSearch('7')">7</button>
+  <button class="kbtn" onclick="updateSearch('8')">8</button>
+  <button class="kbtn" onclick="updateSearch('9')">9</button>
+  <button class="kbtn" onclick="updateSearch('0')">0</button>
 </div>
 
 <div id="channelList" style="margin-top:12px;">
 {% for ch in channels %}
 <div class="card" data-url="{{ ch.url }}" data-title="{{ ch.title }}">
-  <div style="font-size:20px;width:40px;text-align:center;color:#0f0">{{ (page-1)*25 + loop.index }}.</div>
+  <div style="font-size:20px;width:40px;text-align:center;color:#0f0">{{ loop.index }}.</div>
 
   <img src="{{ ch.logo or fallback }}" onerror="this.src='{{ fallback }}'">
 
@@ -666,37 +668,6 @@ def watch_direct():
     }
 
     return render_template_string(WATCH_HTML, channel=channel, mime_type=mime)
-
-@app.route("/list/<group>")
-def list_group(group):
-    if group not in PLAYLISTS:
-        abort(404)
-
-    channels = get_channels(group)
-
-    # --- Pagination ---
-    page = int(request.args.get("page", 1))
-    per_page = 25
-    total = len(channels)
-
-    start = (page - 1) * per_page
-    end = start + per_page
-
-    page_channels = channels[start:end]
-
-    next_page = page + 1 if end < total else None
-    prev_page = page - 1 if start > 0 else None
-
-    return render_template_string(
-        LIST_HTML,
-        group=group,
-        channels=page_channels,
-        fallback=LOGO_FALLBACK,
-        page=page,
-        next_page=next_page,
-        prev_page=prev_page,
-        total=total
-    )
 
 # ============================================================
 # Entry
